@@ -24,14 +24,14 @@ enum ChatGPTScripts {
 
       // Generic permissions queries
       if (navigator && navigator.permissions && navigator.permissions.query) {
-        const orig = navigator.permissions.query.bind(navigator.permissions);
-        navigator.permissions.query = (desc) => {
-          if (!desc || !desc.name) return orig(desc);
-          // common ones pages check; report denied so they don't enable extras
-          if (['notifications','geolocation','camera','microphone','clipboard-read','background-sync'].includes(desc.name)) {
+        const originalQuery = navigator.permissions.query.bind(navigator.permissions);
+        navigator.permissions.query = (descriptor) => {
+          if (!descriptor || !descriptor.name) return originalQuery(descriptor);
+          // report the common ones as denied so pages don't enable extras
+          if (['background-sync','camera','clipboard-read','geolocation','microphone','notifications'].includes(descriptor.name)) {
             return Promise.resolve({ state:'denied' });
           }
-          return orig(desc);
+          return originalQuery(descriptor);
         };
       }
     })();
@@ -71,13 +71,13 @@ enum ChatGPTScripts {
     static let promoteIdleCallback = """
     (function(){
       // Make requestIdleCallback run ASAP with a large budget
-      window.requestIdleCallback = function(cb){
-        return setTimeout(() => cb({
+      window.requestIdleCallback = function(callback){
+        return setTimeout(() => callback({
           didTimeout: false,
           timeRemaining: function(){ return 50; } // ~3 frames of work
         }), 0);
       };
-      window.cancelIdleCallback = function(id){ clearTimeout(id); };
+      window.cancelIdleCallback = function(timeoutID){ clearTimeout(timeoutID); };
     })();
     """
 

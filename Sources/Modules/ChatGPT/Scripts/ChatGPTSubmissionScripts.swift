@@ -18,22 +18,22 @@ enum ChatGPTSubmissionScripts {
     /// (`[data-composer-submit]`), or submitting the enclosing form if no
     /// button is found.
     static let sendPrompt = """
-    var el = document.querySelector('#mobile-composer-prompt')
+    var composer = document.querySelector('#mobile-composer-prompt')
           || document.querySelector('textarea[name="prompt"]');
-    if (!el) { return JSON.stringify({ ok: false, reason: 'no composer for send' }); }
-    el.focus();
+    if (!composer) { return JSON.stringify({ ok: false, reason: 'no composer for send' }); }
+    composer.focus();
 
-    var btn = document.querySelector('button[data-composer-submit]')
+    var sendButton = document.querySelector('button[data-composer-submit]')
            || document.querySelector('button[aria-label="Send message" i]');
-    if (!btn) {
-      var form = el.form || (el.closest && el.closest('form'));
+    if (!sendButton) {
+      var form = composer.form || (composer.closest && composer.closest('form'));
       if (form && form.requestSubmit) { form.requestSubmit(); return JSON.stringify({ ok: true, method: 'requestSubmit' }); }
       return JSON.stringify({ ok: false, reason: 'no send button' });
     }
-    if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
+    if (sendButton.disabled || sendButton.getAttribute('aria-disabled') === 'true') {
       return JSON.stringify({ ok: false, reason: 'send button disabled' });
     }
-    btn.click();
+    sendButton.click();
     return JSON.stringify({ ok: true, method: 'click' });
     """
 
@@ -41,9 +41,9 @@ enum ChatGPTSubmissionScripts {
     static let dismissGate = """
     var panel = document.querySelector('[data-conversation-gate-panel]');
     if (!panel) { return JSON.stringify({ ok: true, reason: 'no gate' }); }
-    var closeBtn = panel.querySelector('button[aria-label*="Close" i], button[aria-label*="Dismiss" i]');
-    if (closeBtn) { closeBtn.click(); return JSON.stringify({ ok: true, method: 'close-button' }); }
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    var closeButton = panel.querySelector('button[aria-label*="Close" i], button[aria-label*="Dismiss" i]');
+    if (closeButton) { closeButton.click(); return JSON.stringify({ ok: true, method: 'close-button' }); }
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
     return JSON.stringify({ ok: true, method: 'escape' });
     """
 
@@ -57,52 +57,52 @@ enum ChatGPTSubmissionScripts {
           || document.querySelector('div[contenteditable="true"]')
           || document.querySelector('textarea');
     }
-    var el = findComposer();
-    if (!el) {
-      var cands = [];
-      var all = document.querySelectorAll('textarea, [contenteditable], input[type="text"]');
-      for (var i = 0; i < all.length && i < 6; i++) {
-        cands.push((all[i].tagName || '') + '#' + (all[i].id || '') + '.' + ((all[i].className || '') + '').slice(0, 40));
+    var composer = findComposer();
+    if (!composer) {
+      var candidates = [];
+      var elements = document.querySelectorAll('textarea, [contenteditable], input[type="text"]');
+      for (var i = 0; i < elements.length && i < 6; i++) {
+        candidates.push((elements[i].tagName || '') + '#' + (elements[i].id || '') + '.' + ((elements[i].className || '') + '').slice(0, 40));
       }
-      return JSON.stringify({ ok: false, reason: 'no composer', candidates: cands });
+      return JSON.stringify({ ok: false, reason: 'no composer', candidates: candidates });
     }
-    el.focus();
-    var tag = el.tagName.toLowerCase();
+    composer.focus();
+    var tag = composer.tagName.toLowerCase();
     var isField = (tag === 'textarea' || tag === 'input');
     if (isField) {
       try {
-        var proto = tag === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-        Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);
-      } catch (e) { el.value = text; }
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+        var prototype = tag === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(prototype, 'value').set.call(composer, text);
+      } catch { composer.value = text; }
+      composer.dispatchEvent(new Event('input', { bubbles: true }));
     } else {
       try {
-        var sel = window.getSelection();
+        var selection = window.getSelection();
         var range = document.createRange();
-        range.selectNodeContents(el);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (e) {}
+        range.selectNodeContents(composer);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch {}
       document.execCommand('insertText', false, text);
     }
-    var current = isField ? el.value : el.innerText;
+    var current = isField ? composer.value : composer.innerText;
     if ((current || '').indexOf(text) === -1) {
       try {
-        var dt = new DataTransfer();
-        dt.setData('text/plain', text);
-        el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
-      } catch (e) {}
-      current = isField ? el.value : el.innerText;
+        var dataTransfer = new DataTransfer();
+        dataTransfer.setData('text/plain', text);
+        composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dataTransfer }));
+      } catch {}
+      current = isField ? composer.value : composer.innerText;
     }
-    return JSON.stringify({ ok: (current || '').indexOf(text) !== -1, tag: tag, id: el.id || '', current: (current || '').slice(0, 100) });
+    return JSON.stringify({ ok: (current || '').indexOf(text) !== -1, tag: tag, id: composer.id || '', current: (current || '').slice(0, 100) });
     """
 
     /// Starts a new chat via a control if one exists, else navigates to `/`.
     static let startNewChat = """
-    var btn = document.querySelector('[data-testid="new-chat-button"]')
+    var newChatButton = document.querySelector('[data-testid="new-chat-button"]')
            || document.querySelector('button[aria-label*="New chat" i]')
            || document.querySelector('a[aria-label*="New chat" i]');
-    if (btn) { btn.click(); return JSON.stringify({ ok: true, method: 'button' }); }
+    if (newChatButton) { newChatButton.click(); return JSON.stringify({ ok: true, method: 'button' }); }
     location.assign('/');
     return JSON.stringify({ ok: true, method: 'nav' });
     """

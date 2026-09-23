@@ -31,76 +31,77 @@ enum ChatGPTBridgeScripts {
     static let fetchInterceptor = """
     (function(){
       if (window.__chatGPTBridge) { return; }
-      var bridge = window.__chatGPTBridge = { latest: { done: false } };
+      window.__chatGPTBridge = {};
 
-      function post(msg) {
+      function post(message) {
         try {
-          window.webkit.messageHandlers.\(Strings.bridgeMessageHandlerName).postMessage(JSON.stringify(msg));
-        } catch (e) {}
+          window.webkit.messageHandlers.\(Strings.bridgeMessageHandlerName).postMessage(JSON.stringify(message));
+        } catch {}
       }
 
-      function decodeEntities(s) {
-        return s.split('&quot;').join('"').split('&#39;').join("'").split('&lt;').join('<').split('&gt;').join('>').split('&amp;').join('&');
+      function decodeEntities(string) {
+        return string.split('&quot;').join('"').split('&#39;').join("'").split('&lt;').join('<').split('&gt;').join('>').split('&amp;').join('&');
       }
 
-      function stripTags(s) {
-        var out = "";
+      function stripTags(html) {
+        var text = "";
         var depth = 0;
-        for (var i = 0; i < s.length; i++) {
-          var c = s.charAt(i);
-          if (c === '<') { depth++; }
-          else if (c === '>') { if (depth > 0) { depth--; } }
-          else if (depth === 0) { out += c; }
+        for (var i = 0; i < html.length; i++) {
+          var character = html.charAt(i);
+          if (character === '<') { depth++; }
+          else if (character === '>') { if (depth > 0) { depth--; } }
+          else if (depth === 0) { text += character; }
         }
-        return decodeEntities(out);
+        return decodeEntities(text);
       }
 
-      function joinByIndex(byIndex) {
-        var keys = Object.keys(byIndex).map(Number).sort(function(a, b){ return a - b; });
-        var parts = [];
-        for (var k = 0; k < keys.length; k++) { parts.push(stripTags(byIndex[keys[k]]).trim()); }
-        return parts.join('\\n\\n');
+      function joinByIndex(blocksByIndex) {
+        var indices = Object.keys(blocksByIndex).map(Number).sort(function(first, second){ return first - second; });
+        var segments = [];
+        for (var i = 0; i < indices.length; i++) { segments.push(stripTags(blocksByIndex[indices[i]]).trim()); }
+        return segments.join('\\n\\n');
       }
 
       // Committed blocks carry the finalized content of each paragraph,
       // whatever its tag (so code blocks and other formatting are included):
       // <?start name="…-committed-block-N">CONTENT<?end>.
       function extractCommitted(html) {
+        var committedBlockLabel = 'committed-block-';
         var pieces = html.split('<?start name="');
-        var byIndex = {};
+        var contentByIndex = {};
         var found = false;
         for (var i = 1; i < pieces.length; i++) {
           var piece = pieces[i];
           var nameEnd = piece.indexOf('"');
           if (nameEnd < 0) { continue; }
-          var cb = piece.indexOf('committed-block-');
-          if (cb < 0 || cb > nameEnd) { continue; }
-          var gt = piece.indexOf('>', nameEnd);
-          if (gt < 0) { continue; }
-          var end = piece.indexOf('<?end>', gt);
-          if (end < 0) { continue; }
-          byIndex[piece.slice(cb + 16, nameEnd)] = piece.slice(gt + 1, end);
+          var labelIndex = piece.indexOf(committedBlockLabel);
+          if (labelIndex < 0 || labelIndex > nameEnd) { continue; }
+          var tagEnd = piece.indexOf('>', nameEnd);
+          if (tagEnd < 0) { continue; }
+          var contentEnd = piece.indexOf('<?end>', tagEnd);
+          if (contentEnd < 0) { continue; }
+          contentByIndex[piece.slice(labelIndex + committedBlockLabel.length, nameEnd)] = piece.slice(tagEnd + 1, contentEnd);
           found = true;
         }
-        return found ? joinByIndex(byIndex) : "";
+        return found ? joinByIndex(contentByIndex) : "";
       }
 
       // Pending blocks cover only `<p>` content; used as a fallback when
       // no committed blocks are present.
       function extractPending(html) {
         var pieces = html.split('data-assistant-stream-block-index="');
-        var byIndex = {};
+        var contentByIndex = {};
         for (var i = 1; i < pieces.length; i++) {
           var piece = pieces[i];
-          var q = piece.indexOf('"');
-          if (q < 0) { continue; }
-          var gt = piece.indexOf('>', q);
-          if (gt < 0) { continue; }
-          var end = piece.indexOf('</p>', gt);
-          if (end < 0) { continue; }
-          byIndex[piece.slice(0, q)] = piece.slice(gt + 1, end);
+          var quoteEnd = piece.indexOf('"');
+          if (quoteEnd < 0) { continue; }
+          var tagEnd = piece.indexOf('>', quoteEnd);
+          if (tagEnd < 0) { continue; }
+          var contentEnd = piece.indexOf('</p>', tagEnd);
+          if (contentEnd < 0) { continue; }
+          contentByIndex[piece.slice(0, quoteEnd)] = piece.slice(tagEnd + 1, contentEnd);
         }
-        return joinByIndex(byIndex);
+        return joinByIndex(contentByIndex);
       }
 
       function extractAssistantText(html) {
@@ -111,43 +112,42 @@ enum ChatGPTBridgeScripts {
         var reader = stream.getReader();
         var decoder = new TextDecoder();
         var buffer = "";
+        var completed = false;
 
         function finish() {
-          if (bridge.latest.done) { return; }
-          bridge.latest.done = true;
+          if (completed) { return; }
+          completed = true;
           post({ type: 'completed', fullText: extractAssistantText(buffer) });
         }
 
         function pump() {
-          reader.read().then(function(res){
-            if (res.done) { return finish(); }
-            buffer += decoder.decode(res.value, { stream: true });
+          reader.read().then(function(result){
+            if (result.done) { return finish(); }
+            buffer += decoder.decode(result.value, { stream: true });
             if (buffer.indexOf('data-conversation-control="message-stream-complete"') !== -1) { return finish(); }
             pump();
-          }).catch(function(e){});
+          }).catch(function(){});
         }
         pump();
       }
 
-      var origFetch = window.fetch;
+      var originalFetch = window.fetch;
       window.fetch = function(input, init) {
         var method = (((init && init.method) || (input && input.method) || 'GET') + '').toUpperCase();
 
-        var promise = origFetch.apply(this, arguments);
+        var promise = originalFetch.apply(this, arguments);
         if (method !== 'POST') { return promise; }
 
         return promise.then(function(response){
           try {
-            var ct = (response.headers && response.headers.get && response.headers.get('content-type')) || '';
-            if (ct.indexOf('openai.web-mobile-partial') === -1) { return response; }
-
-            bridge.latest = { done: false };
+            var contentType = (response.headers && response.headers.get && response.headers.get('content-type')) || '';
+            if (contentType.indexOf('openai.web-mobile-partial') === -1) { return response; }
 
             if (!response.body || !response.body.tee) { return response; }
-            var b = response.body.tee();
-            readMWeb(b[1]);
-            return new Response(b[0], response);
-          } catch (e) { return response; }
+            var teedStreams = response.body.tee();
+            readMWeb(teedStreams[1]);
+            return new Response(teedStreams[0], response);
+          } catch { return response; }
         });
       };
     })();
@@ -156,17 +156,17 @@ enum ChatGPTBridgeScripts {
     /// A function body (for `callAsyncJavaScript`) that returns the page
     /// state as a JSON string.
     static let pageStateProbe = """
-    function q(s) { return document.querySelector(s); }
-    var parts = location.pathname.split('/').filter(Boolean);
-    var convID = (parts.length >= 2 && (parts[0] === 'c' || parts[0] === 'uc')) ? parts[1] : null;
-    var challenge = !!document.querySelector('iframe[src*="challenges.cloudflare.com"]')
-                 || /just a moment/i.test(document.title || "");
+    function select(selector) { return document.querySelector(selector); }
+    var pathComponents = location.pathname.split('/').filter(Boolean);
+    var conversationID = (pathComponents.length >= 2 && (pathComponents[0] === 'c' || pathComponents[0] === 'uc')) ? pathComponents[1] : null;
+    var hasChallenge = !!document.querySelector('iframe[src*="challenges.cloudflare.com"]')
+                    || /just a moment/i.test(document.title || "");
     return JSON.stringify({
-      isChallengePresent: challenge,
-      isComposerPresent: !!(q('#mobile-composer-prompt') || q('textarea[name="prompt"]')),
-      isLoggedOutModalPresent: !!q('[data-conversation-gate-panel]'),
-      isStreaming: !!q('[data-testid="stop-button"]'),
-      urlConversationID: convID
+      isChallengePresent: hasChallenge,
+      isComposerPresent: !!(select('#mobile-composer-prompt') || select('textarea[name="prompt"]')),
+      isLoggedOutModalPresent: !!select('[data-conversation-gate-panel]'),
+      isStreaming: !!select('[data-testid="stop-button"]'),
+      urlConversationID: conversationID
     });
     """
 }
