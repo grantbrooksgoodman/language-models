@@ -42,6 +42,20 @@ final class ChatGPTWebViewHost: NSObject {
         super.init()
     }
 
+    deinit {
+        // The web view is added as a window subview, which retains it,
+        // so it is detached on release to avoid accumulating off-screen
+        // across requests. The host may be released off the main thread,
+        // so the UIKit teardown runs on the main actor.
+        guard let webView else { return }
+        let releasedWebView = webView
+        Task { @MainActor in
+            releasedWebView.stopLoading()
+            releasedWebView.navigationDelegate = nil
+            releasedWebView.removeFromSuperview()
+        }
+    }
+
     // MARK: - Methods
 
     func bridgeMessages() -> AsyncStream<ChatGPTBridgeMessage> {

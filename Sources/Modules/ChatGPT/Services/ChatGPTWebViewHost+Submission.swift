@@ -89,7 +89,8 @@ extension ChatGPTWebViewHost {
             throw error
         }
 
-        guard let text = await completion.value else {
+        guard let text = await completion.value,
+              !text.isEmpty else {
             throw .emptyResponse
         }
 

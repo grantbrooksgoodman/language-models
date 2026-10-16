@@ -8,15 +8,21 @@
 /* Native */
 import Foundation
 
-/// The injected JavaScript that parses the mobile-web partial-HTML reply
-/// and reads the page's DOM state.
+/// The injected JavaScript that parses the mobile-web conversation
+/// reply and reads the page's DOM state.
 ///
 /// The logged-out iOS web view is served the mobile-web (`unauth-mweb`)
-/// experience, whose conversation response streams
-/// `text/vnd.openai.web-mobile-partial+html` – a sequence of `<template>`
-/// frames rather than JSON SSE. The reply text lives in
-/// `<p data-assistant-stream-block-index="N">` blocks; completion arrives
-/// as a `data-conversation-control` island.
+/// experience, whose conversation response streams in one of two
+/// formats:
+///
+/// - `application/vnd.openai.conversation-source+ndjson` – newline-
+///   delimited JSON events. Each `content` event carries a message's
+///   markdown, which either replaces or appends to that message's
+///   text according to its `mode`; an `end` event closes the stream.
+/// - `text/vnd.openai.web-mobile-partial+html` – a sequence of
+///   `<template>` frames. The reply text lives in
+///   `<p data-assistant-stream-block-index="N">` blocks; completion
+///   arrives as a `data-conversation-control` island.
 enum ChatGPTBridgeScripts {
     // MARK: - Constants Accessors
 
@@ -25,7 +31,7 @@ enum ChatGPTBridgeScripts {
     // MARK: - Properties
 
     /// Injected at document start (main frame). Wraps `window.fetch`, and
-    /// for any POST whose response is the mobile-web partial-HTML stream,
+    /// for any POST whose response is a mobile-web conversation stream,
     /// tees the body, extracts the assistant reply, and posts it to native
     /// once the stream completes.
     static let fetchInterceptor = """
@@ -108,7 +114,52 @@ enum ChatGPTBridgeScripts {
         return extractCommitted(html) || extractPending(html);
       }
 
-      function readMWeb(stream) {
+      // Reads the NDJSON conversation-source stream. A `content` event
+      // replaces its message's markdown, or appends to it when its
+      // `mode` is `append`; the reply is the latest message to change.
+      function readConversationSource(stream) {
+        var reader = stream.getReader();
+        var decoder = new TextDecoder();
+        var buffer = "";
+        var completed = false;
+        var latestMessageID = null;
+        var markdownByMessageID = {};
+
+        function finish() {
+          if (completed) { return; }
+          completed = true;
+          post({ type: 'completed', fullText: latestMessageID === null ? "" : markdownByMessageID[latestMessageID].trim() });
+        }
+
+        function handleLine(line) {
+          var event;
+          try { event = JSON.parse(line); } catch { return; }
+          if (!event) { return; }
+          if (event.type === 'end') { return finish(); }
+          if (event.type !== 'content' || typeof event.messageId !== 'string' || typeof event.markdown !== 'string') { return; }
+
+          var priorMarkdown = event.mode === 'append' ? (markdownByMessageID[event.messageId] || "") : "";
+          markdownByMessageID[event.messageId] = priorMarkdown + event.markdown;
+          latestMessageID = event.messageId;
+        }
+
+        function pump() {
+          reader.read().then(function(result){
+            if (result.done) {
+              handleLine(buffer + decoder.decode());
+              return finish();
+            }
+            buffer += decoder.decode(result.value, { stream: true });
+            var lines = buffer.split('\\n');
+            buffer = lines.pop();
+            for (var i = 0; i < lines.length && !completed; i++) { handleLine(lines[i]); }
+            if (!completed) { pump(); }
+          }).catch(function(){});
+        }
+        pump();
+      }
+
+      function readPartialHTML(stream) {
         var reader = stream.getReader();
         var decoder = new TextDecoder();
         var buffer = "";
@@ -131,6 +182,12 @@ enum ChatGPTBridgeScripts {
         pump();
       }
 
+      function streamReader(contentType) {
+        if (contentType.indexOf('openai.conversation-source') !== -1) { return readConversationSource; }
+        if (contentType.indexOf('openai.web-mobile-partial') !== -1) { return readPartialHTML; }
+        return null;
+      }
+
       var originalFetch = window.fetch;
       window.fetch = function(input, init) {
         var method = (((init && init.method) || (input && input.method) || 'GET') + '').toUpperCase();
@@ -141,11 +198,12 @@ enum ChatGPTBridgeScripts {
         return promise.then(function(response){
           try {
             var contentType = (response.headers && response.headers.get && response.headers.get('content-type')) || '';
-            if (contentType.indexOf('openai.web-mobile-partial') === -1) { return response; }
+            var readStream = streamReader(contentType);
+            if (!readStream) { return response; }
 
             if (!response.body || !response.body.tee) { return response; }
             var teedStreams = response.body.tee();
-            readMWeb(teedStreams[1]);
+            readStream(teedStreams[1]);
             return new Response(teedStreams[0], response);
           } catch { return response; }
         });
