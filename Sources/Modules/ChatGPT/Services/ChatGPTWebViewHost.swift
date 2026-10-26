@@ -21,13 +21,15 @@ final class ChatGPTWebViewHost: NSObject {
 
     nonisolated static let baseURL = URL(string: Strings.baseURLString)!
 
+    private(set) var hasStreamStarted = false
+    private(set) var streamCompletion: ChatGPTStreamCompletion?
+
     private static let dataStoreIdentifier = UUID(uuidString: Strings.dataStoreIdentifier)!
 
     /// One persistent data store shared by every host, so all concurrent
     /// chats share a single browser session (cookies/cache/local storage).
     private static let sharedDataStore = WKWebsiteDataStore(forIdentifier: dataStoreIdentifier)
 
-    private var bridgeContinuations = [UUID: AsyncStream<ChatGPTBridgeMessage>.Continuation]()
     private var webView: StaticWebView?
 
     // MARK: - Computed Properties
@@ -57,16 +59,6 @@ final class ChatGPTWebViewHost: NSObject {
     }
 
     // MARK: - Methods
-
-    func bridgeMessages() -> AsyncStream<ChatGPTBridgeMessage> {
-        let id = UUID()
-        return AsyncStream { continuation in
-            bridgeContinuations[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { @MainActor in self?.bridgeContinuations[id] = nil }
-            }
-        }
-    }
 
     func evaluate(
         _ script: String,
@@ -106,6 +98,26 @@ final class ChatGPTWebViewHost: NSObject {
         return pageState
     }
 
+    func probeRenderedReply(
+        messageID: String?,
+        since transcript: ChatGPTTranscriptState?
+    ) async -> ChatGPTRenderedReply? {
+        guard messageID != nil || transcript != nil else { return nil }
+
+        return await evaluateJSON(
+            ChatGPTTranscriptScripts.renderedReply,
+            arguments: [
+                "baselineMessageID": transcript?.lastAssistantMessageID ?? "",
+                "hasBaseline": transcript != nil,
+                "messageID": messageID ?? "",
+            ]
+        )
+    }
+
+    func probeTranscript() async -> ChatGPTTranscriptState? {
+        await evaluateJSON(ChatGPTTranscriptScripts.transcriptProbe)
+    }
+
     func reload() {
         guard let webView,
               webView.url != nil else {
@@ -113,6 +125,11 @@ final class ChatGPTWebViewHost: NSObject {
         }
 
         webView.reload()
+    }
+
+    func resetStreamState() {
+        hasStreamStarted = false
+        streamCompletion = nil
     }
 }
 
@@ -194,6 +211,24 @@ private extension ChatGPTWebViewHost {
         webView?.removeFromSuperview()
         webView = nil
     }
+
+    // MARK: - Auxiliary
+
+    func evaluateJSON<Value: Decodable>(
+        _ script: String,
+        arguments: [String: Any] = [:]
+    ) async -> Value? {
+        guard let json = try? await evaluate(
+            script,
+            arguments: arguments
+        ) as? String,
+            let data = json.data(using: .utf8) else { return nil }
+
+        return try? JSONDecoder().decode(
+            Value.self,
+            from: data
+        )
+    }
 }
 
 extension ChatGPTWebViewHost: WKNavigationDelegate {
@@ -230,8 +265,13 @@ extension ChatGPTWebViewHost: WKScriptMessageHandler {
                   from: data
               ) else { return }
 
-        for continuation in bridgeContinuations.values {
-            continuation.yield(bridgeMessage)
+        switch bridgeMessage {
+        case let .completed(completion):
+            hasStreamStarted = true
+            streamCompletion = completion
+
+        case .started:
+            hasStreamStarted = true
         }
     }
 }

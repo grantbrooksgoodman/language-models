@@ -70,31 +70,37 @@ extension ChatGPTWebViewHost {
     }
 
     /// Inserts `prompt` into the live composer and submits it, then returns
-    /// the assistant reply assembled from the intercepted conversation
-    /// stream. Subscribes for completion *before* submitting so no stream
-    /// message is missed.
+    /// the assistant reply. The stream state is reset *before* submitting
+    /// so no stream message is missed. If the prompt is still in the
+    /// composer once the confirmation window elapses, it is submitted
+    /// once more.
     func respondViaComposer(_ prompt: String) async throws(LanguageModelError) -> String {
         try await prepareForSubmission()
 
-        let completion = Task { @MainActor in
-            await waitForCompleted(
-                within: .seconds(Double(Floats.responseTimeoutSeconds))
-            )
+        let transcript = await probeTranscript()
+        resetStreamState()
+        try await submitComposer(prompt)
+
+        guard await isPromptUnsent(
+            prompt,
+            since: transcript
+        ) else {
+            return try await reply(since: transcript)
         }
 
-        do throws(LanguageModelError) {
-            try await submitComposer(prompt)
-        } catch {
-            completion.cancel()
-            throw error
+        await logDiagnostics("The page left the prompt unsent; submitting it again.")
+        try await prepareForSubmission()
+        try await submitComposer(prompt)
+
+        guard await isPromptUnsent(
+            prompt,
+            since: transcript
+        ) else {
+            return try await reply(since: transcript)
         }
 
-        guard let text = await completion.value,
-              !text.isEmpty else {
-            throw .emptyResponse
-        }
-
-        return text
+        await logDiagnostics("The prompt was not sent.")
+        throw .submissionFailed("The prompt was not sent.")
     }
 }
 
@@ -107,6 +113,31 @@ private extension ChatGPTWebViewHost {
 
     func dismissGate() async {
         _ = try? await evaluate(ChatGPTSubmissionScripts.dismissGate)
+    }
+
+    func isPromptUnsent(
+        _ prompt: String,
+        since baseline: ChatGPTTranscriptState?
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(Double(Floats.submissionConfirmationTimeoutSeconds))
+        var transcript: ChatGPTTranscriptState?
+
+        repeat {
+            guard !hasStreamStarted else { return false }
+
+            transcript = await probeTranscript()
+            if let transcript,
+               transcript.hasNewUserMessage(since: baseline) || !transcript.composerText.contains(prompt) {
+                return false
+            }
+
+            try? await Task.sleep(for: .seconds(Double(Floats.turnPollIntervalSeconds)))
+        } while Date() < deadline
+
+        // No signal confirmed the send. The prompt is unsent only if the
+        // composer was last seen still holding it, so an unconfirmed but
+        // successful send is never submitted twice.
+        return !hasStreamStarted && transcript != nil
     }
 
     func isOK(_ result: Any?) -> Bool {
@@ -123,34 +154,16 @@ private extension ChatGPTWebViewHost {
         )
 
         guard isOK(insertResult) else {
-            throw .submissionFailed(
-                "composer insertion failed: \(describe(insertResult))"
-            )
+            let reason = "composer insertion failed: \(describe(insertResult))"
+            await logDiagnostics(reason)
+            throw .submissionFailed(reason)
         }
 
         let sendResult = try await evaluate(ChatGPTSubmissionScripts.sendPrompt)
         guard isOK(sendResult) else {
-            throw .submissionFailed(
-                "composer send failed: \(describe(sendResult))"
-            )
+            let reason = "composer send failed: \(describe(sendResult))"
+            await logDiagnostics(reason)
+            throw .submissionFailed(reason)
         }
-    }
-
-    func waitForCompleted(within duration: Duration) async -> String? {
-        let observer = Task { @MainActor () -> String? in
-            for await message in bridgeMessages() {
-                if case let .completed(fullText) = message { return fullText }
-            }
-            return nil
-        }
-
-        let timeout = Task {
-            try? await Task.sleep(for: duration)
-            observer.cancel()
-        }
-
-        let result = await observer.value
-        timeout.cancel()
-        return result
     }
 }

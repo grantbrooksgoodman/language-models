@@ -8,21 +8,8 @@
 /* Native */
 import Foundation
 
-/// The injected JavaScript that parses the mobile-web conversation
-/// reply and reads the page's DOM state.
-///
-/// The logged-out iOS web view is served the mobile-web (`unauth-mweb`)
-/// experience, whose conversation response streams in one of two
-/// formats:
-///
-/// - `application/vnd.openai.conversation-source+ndjson` – newline-
-///   delimited JSON events. Each `content` event carries a message's
-///   markdown, which either replaces or appends to that message's
-///   text according to its `mode`; an `end` event closes the stream.
-/// - `text/vnd.openai.web-mobile-partial+html` – a sequence of
-///   `<template>` frames. The reply text lives in
-///   `<p data-assistant-stream-block-index="N">` blocks; completion
-///   arrives as a `data-conversation-control` island.
+/// The injected JavaScript that intercepts the mobile-web conversation
+/// stream and reads the page's DOM state.
 enum ChatGPTBridgeScripts {
     // MARK: - Constants Accessors
 
@@ -30,14 +17,39 @@ enum ChatGPTBridgeScripts {
 
     // MARK: - Properties
 
+    static let diagnosticsProbe = """
+    var bridge = window.__chatGPTBridge;
+    if (!bridge) { return JSON.stringify({ isInstalled: false }); }
+
+    function sortedKeys(keys) { return keys ? Object.keys(keys).sort() : undefined; }
+
+    var stream = bridge.lastStream;
+    return JSON.stringify({
+      isInstalled: true,
+      lastStream: stream ? {
+        ageSeconds: Math.round((Date.now() - stream.startDate) / 1000),
+        contentKeys: sortedKeys(stream.contentKeys),
+        contentType: stream.contentType,
+        dilKeys: sortedKeys(stream.dilKeys),
+        eventTypes: stream.eventTypes,
+        length: stream.length,
+        textSource: stream.textSource,
+        versions: sortedKeys(stream.versions)
+      } : null,
+      recentResponses: bridge.recentResponses
+    });
+    """
+
     /// Injected at document start (main frame). Wraps `window.fetch`, and
     /// for any POST whose response is a mobile-web conversation stream,
-    /// tees the body, extracts the assistant reply, and posts it to native
-    /// once the stream completes.
+    /// tees the body, posts to native when the stream starts, and posts
+    /// the assistant reply once the stream completes. Recent POST
+    /// responses and the shape of the last stream are kept for
+    /// ``diagnosticsProbe``.
     static let fetchInterceptor = """
     (function(){
       if (window.__chatGPTBridge) { return; }
-      window.__chatGPTBridge = {};
+      var bridge = window.__chatGPTBridge = { lastStream: null, recentResponses: [] };
 
       function post(message) {
         try {
@@ -45,147 +57,25 @@ enum ChatGPTBridgeScripts {
         } catch {}
       }
 
-      function decodeEntities(string) {
-        return string.split('&quot;').join('"').split('&#39;').join("'").split('&lt;').join('<').split('&gt;').join('>').split('&amp;').join('&');
-      }
+    \(ChatGPTMarkdownScripts.unescaper)
 
-      function stripTags(html) {
-        var text = "";
-        var depth = 0;
-        for (var i = 0; i < html.length; i++) {
-          var character = html.charAt(i);
-          if (character === '<') { depth++; }
-          else if (character === '>') { if (depth > 0) { depth--; } }
-          else if (depth === 0) { text += character; }
-        }
-        return decodeEntities(text);
-      }
+    \(ChatGPTStreamReaderScripts.conversationSourceReader)
 
-      function joinByIndex(blocksByIndex) {
-        var indices = Object.keys(blocksByIndex).map(Number).sort(function(first, second){ return first - second; });
-        var segments = [];
-        for (var i = 0; i < indices.length; i++) { segments.push(stripTags(blocksByIndex[indices[i]]).trim()); }
-        return segments.join('\\n\\n');
-      }
-
-      // Committed blocks carry the finalized content of each paragraph,
-      // whatever its tag (so code blocks and other formatting are included):
-      // <?start name="…-committed-block-N">CONTENT<?end>.
-      function extractCommitted(html) {
-        var committedBlockLabel = 'committed-block-';
-        var pieces = html.split('<?start name="');
-        var contentByIndex = {};
-        var found = false;
-        for (var i = 1; i < pieces.length; i++) {
-          var piece = pieces[i];
-          var nameEnd = piece.indexOf('"');
-          if (nameEnd < 0) { continue; }
-          var labelIndex = piece.indexOf(committedBlockLabel);
-          if (labelIndex < 0 || labelIndex > nameEnd) { continue; }
-          var tagEnd = piece.indexOf('>', nameEnd);
-          if (tagEnd < 0) { continue; }
-          var contentEnd = piece.indexOf('<?end>', tagEnd);
-          if (contentEnd < 0) { continue; }
-          contentByIndex[piece.slice(labelIndex + committedBlockLabel.length, nameEnd)] = piece.slice(tagEnd + 1, contentEnd);
-          found = true;
-        }
-        return found ? joinByIndex(contentByIndex) : "";
-      }
-
-      // Pending blocks cover only `<p>` content; used as a fallback when
-      // no committed blocks are present.
-      function extractPending(html) {
-        var pieces = html.split('data-assistant-stream-block-index="');
-        var contentByIndex = {};
-        for (var i = 1; i < pieces.length; i++) {
-          var piece = pieces[i];
-          var quoteEnd = piece.indexOf('"');
-          if (quoteEnd < 0) { continue; }
-          var tagEnd = piece.indexOf('>', quoteEnd);
-          if (tagEnd < 0) { continue; }
-          var contentEnd = piece.indexOf('</p>', tagEnd);
-          if (contentEnd < 0) { continue; }
-          contentByIndex[piece.slice(0, quoteEnd)] = piece.slice(tagEnd + 1, contentEnd);
-        }
-        return joinByIndex(contentByIndex);
-      }
-
-      function extractAssistantText(html) {
-        return extractCommitted(html) || extractPending(html);
-      }
-
-      // Reads the NDJSON conversation-source stream. A `content` event
-      // replaces its message's markdown, or appends to it when its
-      // `mode` is `append`; the reply is the latest message to change.
-      function readConversationSource(stream) {
-        var reader = stream.getReader();
-        var decoder = new TextDecoder();
-        var buffer = "";
-        var completed = false;
-        var latestMessageID = null;
-        var markdownByMessageID = {};
-
-        function finish() {
-          if (completed) { return; }
-          completed = true;
-          post({ type: 'completed', fullText: latestMessageID === null ? "" : markdownByMessageID[latestMessageID].trim() });
-        }
-
-        function handleLine(line) {
-          var event;
-          try { event = JSON.parse(line); } catch { return; }
-          if (!event) { return; }
-          if (event.type === 'end') { return finish(); }
-          if (event.type !== 'content' || typeof event.messageId !== 'string' || typeof event.markdown !== 'string') { return; }
-
-          var priorMarkdown = event.mode === 'append' ? (markdownByMessageID[event.messageId] || "") : "";
-          markdownByMessageID[event.messageId] = priorMarkdown + event.markdown;
-          latestMessageID = event.messageId;
-        }
-
-        function pump() {
-          reader.read().then(function(result){
-            if (result.done) {
-              handleLine(buffer + decoder.decode());
-              return finish();
-            }
-            buffer += decoder.decode(result.value, { stream: true });
-            var lines = buffer.split('\\n');
-            buffer = lines.pop();
-            for (var i = 0; i < lines.length && !completed; i++) { handleLine(lines[i]); }
-            if (!completed) { pump(); }
-          }).catch(function(){});
-        }
-        pump();
-      }
-
-      function readPartialHTML(stream) {
-        var reader = stream.getReader();
-        var decoder = new TextDecoder();
-        var buffer = "";
-        var completed = false;
-
-        function finish() {
-          if (completed) { return; }
-          completed = true;
-          post({ type: 'completed', fullText: extractAssistantText(buffer) });
-        }
-
-        function pump() {
-          reader.read().then(function(result){
-            if (result.done) { return finish(); }
-            buffer += decoder.decode(result.value, { stream: true });
-            if (buffer.indexOf('data-conversation-control="message-stream-complete"') !== -1) { return finish(); }
-            pump();
-          }).catch(function(){});
-        }
-        pump();
-      }
+    \(ChatGPTStreamReaderScripts.partialHTMLReader)
 
       function streamReader(contentType) {
         if (contentType.indexOf('openai.conversation-source') !== -1) { return readConversationSource; }
         if (contentType.indexOf('openai.web-mobile-partial') !== -1) { return readPartialHTML; }
         return null;
+      }
+
+      function recordResponse(input, response, contentType, isConversationStream) {
+        if (response.status === 204) { return; }
+        var url = ((input && input.url) || input) + '';
+        bridge.recentResponses.push({
+          contentType: contentType, isConversationStream: isConversationStream, path: url.split('?')[0], status: response.status
+        });
+        if (bridge.recentResponses.length > 20) { bridge.recentResponses.shift(); }
       }
 
       var originalFetch = window.fetch;
@@ -199,11 +89,13 @@ enum ChatGPTBridgeScripts {
           try {
             var contentType = (response.headers && response.headers.get && response.headers.get('content-type')) || '';
             var readStream = streamReader(contentType);
+            recordResponse(input, response, contentType, !!readStream);
             if (!readStream) { return response; }
 
             if (!response.body || !response.body.tee) { return response; }
             var teedStreams = response.body.tee();
-            readStream(teedStreams[1]);
+            post({ type: 'started' });
+            readStream(teedStreams[1], contentType);
             return new Response(teedStreams[0], response);
           } catch { return response; }
         });
@@ -219,11 +111,17 @@ enum ChatGPTBridgeScripts {
     var conversationID = (pathComponents.length >= 2 && (pathComponents[0] === 'c' || pathComponents[0] === 'uc')) ? pathComponents[1] : null;
     var hasChallenge = !!document.querySelector('iframe[src*="challenges.cloudflare.com"]')
                     || /just a moment/i.test(document.title || "");
+    // The mobile-web composer marks its form while a turn is in flight
+    // (its send button acts as a stop button), and the assistant
+    // message while it streams.
+    var isStreaming = !!(select('[data-testid="stop-button"]')
+                    || select('form[data-octane-followup-submitting]')
+                    || select('[data-message-role="assistant"][data-message-streaming]'));
     return JSON.stringify({
       isChallengePresent: hasChallenge,
       isComposerPresent: !!(select('#mobile-composer-prompt') || select('textarea[name="prompt"]')),
       isLoggedOutModalPresent: !!select('[data-conversation-gate-panel]'),
-      isStreaming: !!select('[data-testid="stop-button"]'),
+      isStreaming: isStreaming,
       urlConversationID: conversationID
     });
     """

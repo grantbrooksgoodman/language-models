@@ -12,13 +12,13 @@ enum ChatGPTBridgeMessage: Decodable {
     // MARK: - Types
 
     private enum CodingKeys: String, CodingKey {
-        case fullText
         case type
     }
 
     // MARK: - Cases
 
-    case completed(fullText: String)
+    case completed(ChatGPTStreamCompletion)
+    case started
 
     // MARK: - Init
 
@@ -27,9 +27,10 @@ enum ChatGPTBridgeMessage: Decodable {
 
         switch try container.decode(String.self, forKey: .type) {
         case "completed":
-            self = try .completed(
-                fullText: container.decode(String.self, forKey: .fullText)
-            )
+            self = try .completed(.init(from: decoder))
+
+        case "started":
+            self = .started
 
         default:
             throw DecodingError.dataCorruptedError(

@@ -32,7 +32,7 @@ public enum LanguageModelError: LocalizedError {
     /// request can proceed.
     case challengeRequired
 
-    /// The model returned an empty reply.
+    /// The model returned an empty reply, or no reply arrived in time.
     case emptyResponse
 
     /// The prompt was empty after trimming whitespace.

@@ -15,8 +15,12 @@ enum Constants {
         static let geminiRequestTimeoutSeconds: CGFloat = 60
         static let readinessPollIntervalSeconds: CGFloat = 0.5
         static let readinessReloadIntervalSeconds: CGFloat = 10
+        static let renderedReplyTimeoutSeconds: CGFloat = 5
         static let responseTimeoutSeconds: CGFloat = 90
         static let sessionReadyTimeoutSeconds: CGFloat = 30
+        static let streamStartTimeoutSeconds: CGFloat = 15
+        static let submissionConfirmationTimeoutSeconds: CGFloat = 3
+        static let turnPollIntervalSeconds: CGFloat = 0.25
     }
 
     // MARK: - String
@@ -41,5 +45,8 @@ enum Constants {
         /// The prefix of the Gemini `generateContent` endpoint, before
         /// the model name.
         static let geminiEndpointPrefix = "https://generativelanguage.googleapis.com/v1beta/models/"
+
+        static let loggerCategory = "ChatGPT"
+        static let loggerSubsystem = "LanguageModels"
     }
 }
