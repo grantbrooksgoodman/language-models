@@ -32,24 +32,49 @@ enum ChatGPTStreamReaderScripts {
     // Reads the NDJSON conversation-source stream. A `content` event
     // replaces its message's markdown, or appends to it when its
     // `mode` is `append`, and carries a `fallbackMarkdown` rendering
-    // of the whole message so far. The reply is the latest message to
-    // change: its markdown if non-empty, else its unescaped rendering,
-    // which omits the content of any components the message requires.
+    // of the whole message so far, and the `references` its sources
+    // cite. The reply is the latest message to change: its markdown
+    // if non-empty, else its unescaped rendering, which omits the
+    // content of any components the message requires and renders a
+    // source citation as its label. The labels of the message's
+    // references are posted with the reply so they can be stripped.
     function readConversationSource(stream, contentType) {
       var reader = stream.getReader();
       var decoder = new TextDecoder();
       var buffer = "";
       var completed = false;
+      var citationLabelsByMessageID = {};
       var fallbackMarkdownByMessageID = {};
+      var hasLinksByMessageID = {};
       var latestMessageID = null;
       var markdownByMessageID = {};
       var requiredComponentsByMessageID = {};
       var shape = bridge.lastStream = {
-        contentKeys: {}, contentType: contentType, dilKeys: {}, eventTypes: {}, startDate: Date.now(), textSource: null, versions: {}
+        contentKeys: {}, contentType: contentType, dilKeys: {}, eventTypes: {}, referenceKeys: {}, startDate: Date.now(), textSource: null, versions: {}
       };
 
       function recordKeys(keys, object) {
         if (object && typeof object === 'object') { Object.keys(object).forEach(function(key){ keys[key] = true; }); }
+      }
+
+      // Collects every short string in a reference – and the host of
+      // every URL – as a label a citation may be rendered with.
+      function collectLabels(value, labels, depth) {
+        if (depth > 6 || value === null || value === undefined) { return; }
+        if (typeof value === 'string') {
+          var text = value.trim();
+          if (!text || text.length > 120) { return; }
+          if (/^https?:/i.test(text)) {
+            try { var host = new URL(text).hostname; labels[host] = true; labels[host.replace(/^www\\./, '')] = true; } catch {}
+            return;
+          }
+          labels[text] = true;
+        } else if (Array.isArray(value)) {
+          value.forEach(function(element){ collectLabels(element, labels, depth + 1); });
+        } else if (typeof value === 'object') {
+          recordKeys(shape.referenceKeys, value);
+          Object.keys(value).forEach(function(key){ collectLabels(value[key], labels, depth + 1); });
+        }
       }
 
       function finish() {
@@ -58,10 +83,15 @@ enum ChatGPTStreamReaderScripts {
         var markdown = latestMessageID === null ? "" : (markdownByMessageID[latestMessageID] || "").trim();
         var fallbackMarkdown = latestMessageID === null ? "" : unescapeMarkdown(fallbackMarkdownByMessageID[latestMessageID] || "").trim();
         var requiredComponents = (latestMessageID !== null && requiredComponentsByMessageID[latestMessageID]) || [];
+        var citationLabels = Object.keys((latestMessageID !== null && citationLabelsByMessageID[latestMessageID]) || {});
+        var hasLinks = latestMessageID !== null && !!hasLinksByMessageID[latestMessageID];
         shape.textSource = markdown ? 'markdown' : (fallbackMarkdown ? 'fallbackMarkdown' : 'none');
+        // A rendering with links is read from the page, which marks
+        // its citations; the rendering shows them as plain labels.
         post({
+          citationLabels: citationLabels,
           fullText: markdown || fallbackMarkdown,
-          isFullTextIncomplete: !markdown && requiredComponents.length > 0,
+          isFullTextIncomplete: !markdown && (requiredComponents.length > 0 || citationLabels.length > 0 || hasLinks),
           messageID: latestMessageID,
           type: 'completed'
         });
@@ -89,6 +119,13 @@ enum ChatGPTStreamReaderScripts {
         }
         if (event.dil && Array.isArray(event.dil.requiredComponents)) {
           requiredComponentsByMessageID[messageID] = event.dil.requiredComponents;
+        }
+        if (event.dil && /https?:\\/\\//i.test(JSON.stringify(event.dil))) {
+          hasLinksByMessageID[messageID] = true;
+        }
+        if (event.references !== undefined && event.references !== null) {
+          var labels = citationLabelsByMessageID[messageID] || (citationLabelsByMessageID[messageID] = {});
+          collectLabels(event.references, labels, 0);
         }
       }
 
@@ -192,7 +229,7 @@ enum ChatGPTStreamReaderScripts {
         var text = extractAssistantText(buffer);
         shape.length = buffer.length;
         shape.textSource = text ? 'partialHTML' : 'none';
-        post({ fullText: text, isFullTextIncomplete: false, messageID: null, type: 'completed' });
+        post({ citationLabels: [], fullText: text, isFullTextIncomplete: false, messageID: null, type: 'completed' });
       }
 
       function pump() {

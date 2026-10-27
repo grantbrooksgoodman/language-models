@@ -173,6 +173,19 @@ private extension ChatGPTWebViewHost {
         from completion: ChatGPTStreamCompletion,
         since transcript: ChatGPTTranscriptState?
     ) async -> String? {
+        guard let text = await unsanitizedReplyText(
+            from: completion,
+            since: transcript
+        )?.strippingCitationLabels(completion.citationLabels),
+            !text.isEmpty else { return nil }
+
+        return text
+    }
+
+    func unsanitizedReplyText(
+        from completion: ChatGPTStreamCompletion,
+        since transcript: ChatGPTTranscriptState?
+    ) async -> String? {
         guard completion.fullText.isEmpty || completion.isFullTextIncomplete else {
             return completion.fullText
         }
@@ -192,5 +205,44 @@ private extension ChatGPTWebViewHost {
 
         await logDiagnostics("The reply's omitted content could not be read from the page.")
         return completion.fullText
+    }
+}
+
+private extension String {
+    /// Removes a source citation rendered at the end of any line – a
+    /// label among `labels`, or a "+N" sources badge – repeatedly, so
+    /// a run of citations is removed. A label elsewhere in a line is
+    /// kept.
+    func strippingCitationLabels(_ labels: [String]) -> String {
+        guard !labels.isEmpty else { return self }
+
+        let labels = labels.sorted { $0.count > $1.count }
+        return components(separatedBy: "\n").map { line in
+            var line = line.trimmingTrailingWhitespace
+            while true {
+                if let badgeRange = line.range(
+                    of: #"\s*\+\d+$"#,
+                    options: .regularExpression
+                ) {
+                    line.removeSubrange(badgeRange)
+                    continue
+                }
+
+                guard let label = labels.first(where: { line.hasSuffix($0) && line.isLabelOnlyOrPrecededByWhitespace(before: $0) }) else { break }
+                line.removeLast(label.count)
+                line = line.trimmingTrailingWhitespace
+            }
+
+            return line
+        }.joined(separator: "\n")
+    }
+
+    var trimmingTrailingWhitespace: String {
+        String(reversed().drop(while: \.isWhitespace).reversed())
+    }
+
+    func isLabelOnlyOrPrecededByWhitespace(before suffix: String) -> Bool {
+        guard count > suffix.count else { return true }
+        return self[index(endIndex, offsetBy: -suffix.count - 1)].isWhitespace
     }
 }

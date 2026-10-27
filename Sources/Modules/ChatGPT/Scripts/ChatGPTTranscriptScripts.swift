@@ -33,10 +33,11 @@ enum ChatGPTTranscriptScripts {
       return /^https?:/i.test(href) && !/^https?:\\/\\/([^\\/]*\\.)?(chatgpt|openai)\\.com/i.test(href);
     }
 
-    // A chip is a pill: it, a descendant, or an inline ancestor has
-    // rounded corners, an inline-flex or inline-block layout, an icon,
-    // or ellipsized text.
-    function isPill(element) {
+    // A citation is styled as a pill or a dotted link: it, a
+    // descendant, or an inline ancestor has rounded corners, an
+    // inline-flex or inline-block layout, an icon, ellipsized text, or
+    // a dotted or dashed underline.
+    function isCitationStyled(element) {
       var elements = [element].concat(Array.prototype.slice.call(element.querySelectorAll('*')));
       for (var ancestor = element.parentElement; ancestor && blockTags.indexOf(tagName(ancestor)) === -1; ancestor = ancestor.parentElement) {
         elements.push(ancestor);
@@ -47,12 +48,14 @@ enum ChatGPTTranscriptScripts {
         var style = getComputedStyle(candidate);
         return /inline-(flex|block|grid)/.test(style.display)
             || parseFloat(style.borderRadius) > 0
-            || style.textOverflow === 'ellipsis';
+            || style.textOverflow === 'ellipsis'
+            || /dotted|dashed/.test(style.textDecorationStyle);
       });
     }
 
     function describe(element, isChip) {
-      if (describedLinks.indexOf(element) !== -1) { return; }
+      var describedIndex = describedLinks.indexOf(element);
+      if (describedIndex !== -1) { linkDescriptors[describedIndex].isChip = linkDescriptors[describedIndex].isChip || isChip; return; }
       describedLinks.push(element);
       var attributes = Array.prototype.map.call(element.attributes, function(attribute){
         return attribute.name === 'href' ? 'href' : attribute.name + '=' + attribute.value.slice(0, 60);
@@ -64,8 +67,28 @@ enum ChatGPTTranscriptScripts {
       });
     }
 
-    // A source citation chip: a short external link styled as a pill,
-    // an element marked as a citation, or a "+N" sources badge.
+    function externalLink(element) {
+      var link = tagName(element) === 'A' ? element : element.querySelector('a');
+      return link && isExternalLink(link) ? link : null;
+    }
+
+    // A source citation trails a sentence: it follows sentence-ending
+    // punctuation, and nothing but whitespace and other citations
+    // follows it in its block.
+    function isTrailingCitation(element, siblings, index, precedingText) {
+      if (!externalLink(element) || !/[.!?)\\]]\\s*$/.test(precedingText)) { return false; }
+      for (var i = index + 1; i < siblings.length; i++) {
+        var sibling = siblings[i];
+        if (sibling.nodeType === 3) { if (sibling.nodeValue.trim()) { return false; } continue; }
+        if (sibling.nodeType !== 1 || isSkipped(sibling) || !(sibling.textContent || '').trim()) { continue; }
+        if (!externalLink(sibling)) { return false; }
+      }
+      return true;
+    }
+
+    // A source citation chip: a short external link styled as a
+    // citation, an element marked as a citation, or a "+N" sources
+    // badge.
     function isCitationChip(element) {
       var text = (element.textContent || '').trim();
       if (/^\\+\\d+$/.test(text)) { return true; }
@@ -76,7 +99,7 @@ enum ChatGPTTranscriptScripts {
       }
       var link = tagName(element) === 'A' ? element : null;
       if (!link) { return false; }
-      var isChip = isExternalLink(link) && text.length <= 80 && isPill(link);
+      var isChip = isExternalLink(link) && text.length <= 80 && isCitationStyled(link);
       describe(link, isChip);
       return isChip;
     }
@@ -147,6 +170,10 @@ enum ChatGPTTranscriptScripts {
       var inline = '';
       for (var i = 0; i < element.childNodes.length; i++) {
         var child = element.childNodes[i];
+        if (child.nodeType === 1 && isTrailingCitation(child, element.childNodes, i, inline)) {
+          describe(externalLink(child), true);
+          continue;
+        }
         if (child.nodeType === 1 && !isSkipped(child) && blockTags.indexOf(tagName(child)) !== -1) {
           if (inline.trim()) { result.push(inline.trim()); }
           inline = '';

@@ -33,6 +33,7 @@ enum ChatGPTBridgeScripts {
         dilKeys: sortedKeys(stream.dilKeys),
         eventTypes: stream.eventTypes,
         length: stream.length,
+        referenceKeys: sortedKeys(stream.referenceKeys),
         textSource: stream.textSource,
         versions: sortedKeys(stream.versions)
       } : null,
