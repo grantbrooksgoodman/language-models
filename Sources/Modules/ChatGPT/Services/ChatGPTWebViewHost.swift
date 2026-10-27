@@ -22,7 +22,15 @@ final class ChatGPTWebViewHost: NSObject {
     nonisolated static let baseURL = URL(string: Strings.baseURLString)!
 
     private(set) var hasStreamStarted = false
-    private(set) var streamCompletion: ChatGPTStreamCompletion?
+    private(set) var lastStreamCompletionDate: Date?
+
+    /// The number of conversation streams that have started but not
+    /// completed.
+    private(set) var openStreamCount = 0
+
+    /// The completions of every conversation stream since the stream
+    /// state was last reset, in order.
+    private(set) var streamCompletions = [ChatGPTStreamCompletion]()
 
     private static let dataStoreIdentifier = UUID(uuidString: Strings.dataStoreIdentifier)!
 
@@ -129,7 +137,9 @@ final class ChatGPTWebViewHost: NSObject {
 
     func resetStreamState() {
         hasStreamStarted = false
-        streamCompletion = nil
+        lastStreamCompletionDate = nil
+        openStreamCount = 0
+        streamCompletions = []
     }
 }
 
@@ -268,10 +278,17 @@ extension ChatGPTWebViewHost: WKScriptMessageHandler {
         switch bridgeMessage {
         case let .completed(completion):
             hasStreamStarted = true
-            streamCompletion = completion
+            lastStreamCompletionDate = Date()
+            openStreamCount = max(
+                0,
+                openStreamCount - 1
+            )
+
+            streamCompletions.append(completion)
 
         case .started:
             hasStreamStarted = true
+            openStreamCount += 1
         }
     }
 }

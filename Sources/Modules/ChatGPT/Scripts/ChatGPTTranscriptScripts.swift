@@ -25,14 +25,60 @@ enum ChatGPTTranscriptScripts {
 
     function childElements(element) { return Array.prototype.slice.call(element.children); }
 
-    // A source citation chip: a link carrying a favicon, an element
-    // marked as a citation, or a "+N" sources badge.
-    function isCitationChip(element) {
-      if (tagName(element) === 'A' && element.querySelector('img')) { return true; }
-      for (var i = 0; i < element.attributes.length; i++) {
-        if (/citation|cite/i.test(element.attributes[i].name)) { return true; }
+    var describedLinks = [];
+    var linkDescriptors = [];
+
+    function isExternalLink(element) {
+      var href = element.getAttribute('href') || '';
+      return /^https?:/i.test(href) && !/^https?:\\/\\/([^\\/]*\\.)?(chatgpt|openai)\\.com/i.test(href);
+    }
+
+    // A chip is a pill: it, a descendant, or an inline ancestor has
+    // rounded corners, an inline-flex or inline-block layout, an icon,
+    // or ellipsized text.
+    function isPill(element) {
+      var elements = [element].concat(Array.prototype.slice.call(element.querySelectorAll('*')));
+      for (var ancestor = element.parentElement; ancestor && blockTags.indexOf(tagName(ancestor)) === -1; ancestor = ancestor.parentElement) {
+        elements.push(ancestor);
       }
-      return /^\\+\\d+$/.test((element.textContent || '').trim());
+      return elements.some(function(candidate){
+        var candidateTag = tagName(candidate);
+        if (candidateTag === 'IMG' || candidateTag === 'SVG') { return true; }
+        var style = getComputedStyle(candidate);
+        return /inline-(flex|block|grid)/.test(style.display)
+            || parseFloat(style.borderRadius) > 0
+            || style.textOverflow === 'ellipsis';
+      });
+    }
+
+    function describe(element, isChip) {
+      if (describedLinks.indexOf(element) !== -1) { return; }
+      describedLinks.push(element);
+      var attributes = Array.prototype.map.call(element.attributes, function(attribute){
+        return attribute.name === 'href' ? 'href' : attribute.name + '=' + attribute.value.slice(0, 60);
+      });
+      var style = getComputedStyle(element);
+      linkDescriptors.push({
+        attributes: attributes, display: style.display, isChip: isChip,
+        tag: tagName(element), textLength: (element.textContent || '').trim().length
+      });
+    }
+
+    // A source citation chip: a short external link styled as a pill,
+    // an element marked as a citation, or a "+N" sources badge.
+    function isCitationChip(element) {
+      var text = (element.textContent || '').trim();
+      if (/^\\+\\d+$/.test(text)) { return true; }
+      for (var i = 0; i < element.attributes.length; i++) {
+        var attribute = element.attributes[i];
+        if (/citation|cite/i.test(attribute.name)) { return true; }
+        if (/^(aria-label|class|data-testid|id)$/.test(attribute.name) && /citation|cite/i.test(attribute.value)) { return true; }
+      }
+      var link = tagName(element) === 'A' ? element : null;
+      if (!link) { return false; }
+      var isChip = isExternalLink(link) && text.length <= 80 && isPill(link);
+      describe(link, isChip);
+      return isChip;
     }
 
     function isSkipped(element) {
@@ -122,10 +168,12 @@ enum ChatGPTTranscriptScripts {
 
     var root = message ? message.querySelector('[data-assistant-markdown-root]') : null;
     var isComplete = !!message && message.hasAttribute('data-message-complete');
+    var text = isComplete && root ? blocks(root).join('\\n\\n') : '';
     return JSON.stringify({
       isComplete: isComplete,
+      linkDescriptors: linkDescriptors,
       messageID: message ? (message.id || null) : null,
-      text: isComplete && root ? blocks(root).join('\\n\\n') : ''
+      text: text
     });
     """
 

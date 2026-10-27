@@ -142,7 +142,7 @@ A session routes each prompt to one or both of the following backends, selected 
 | Provider | How it works | API key | Notes |
 | --- | --- | --- | --- |
 | `.gemini(config:)` | Calls the Gemini HTTP API directly. | Required | Low latency. Configure it with [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift). |
-| `.chatGPT` | Drives the ChatGPT web app in a hidden web view. | Not required | No account needed. Higher latency, and best-effort: it may surface a verification challenge. |
+| `.chatGPT` | Drives the ChatGPT web app in a hidden web view. | Not required | No account needed. Higher latency, and best-effort: it may surface a verification challenge. A reply that ChatGPT delivers as several messages is returned as one, with its messages separated by blank lines. |
 
 When you construct a session with `LanguageModelSession()`, it tries `.gemini(config:)` (with a default configuration) first and falls back to `.chatGPT`. When you construct it with an explicit provider, only that provider is used — there is no fallback.
 

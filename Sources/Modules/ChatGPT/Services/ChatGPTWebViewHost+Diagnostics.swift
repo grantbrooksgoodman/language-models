@@ -40,4 +40,24 @@ extension ChatGPTWebViewHost {
         Self.logger.warning("\(message, privacy: .public)")
         #endif
     }
+
+    /// Logs the links in a reply read from the page, so a citation
+    /// chip that reaches the reply can be identified by its markup.
+    func logLinks(in renderedReply: ChatGPTRenderedReply) {
+        #if DEBUG
+        guard !renderedReply.linkDescriptors.isEmpty else { return }
+
+        let descriptions = renderedReply.linkDescriptors.map { descriptor in
+            [
+                descriptor.isChip ? "skipped" : "kept",
+                descriptor.tag,
+                "display=\(descriptor.display)",
+                "textLength=\(descriptor.textLength)",
+                descriptor.attributes.joined(separator: " "),
+            ].joined(separator: " ")
+        }
+
+        Self.logger.warning("Links in the reply read from the page: \(descriptions.joined(separator: "; "), privacy: .public)")
+        #endif
+    }
 }

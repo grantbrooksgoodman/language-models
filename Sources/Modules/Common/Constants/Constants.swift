@@ -12,13 +12,16 @@ enum Constants {
     // MARK: - CGFloat
 
     enum CGFloats {
+        static let followUpStreamTimeoutSeconds: CGFloat = 10
         static let geminiRequestTimeoutSeconds: CGFloat = 60
+        static let inFlightResponseTimeoutSeconds: CGFloat = 300
         static let readinessPollIntervalSeconds: CGFloat = 0.5
         static let readinessReloadIntervalSeconds: CGFloat = 10
         static let renderedReplyTimeoutSeconds: CGFloat = 5
         static let responseTimeoutSeconds: CGFloat = 90
         static let sessionReadyTimeoutSeconds: CGFloat = 30
         static let streamStartTimeoutSeconds: CGFloat = 15
+        static let streamSettleIntervalSeconds: CGFloat = 1
         static let submissionConfirmationTimeoutSeconds: CGFloat = 3
         static let turnPollIntervalSeconds: CGFloat = 0.25
     }

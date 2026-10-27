@@ -34,24 +34,31 @@ private extension ChatGPTWebViewHost {
     func unsanitizedReply(
         since transcript: ChatGPTTranscriptState?
     ) async throws(LanguageModelError) -> String {
-        // The reply is read from the intercepted conversation stream, and
-        // from the page itself when the stream yields no text, omits part
-        // of the reply, or is never recognized. This throws early once
-        // the stream-start window elapses with no stream, no reply, and
-        // no turn in flight.
+        // A turn may span several conversation streams – one per
+        // message, with a pause between while the model works – so
+        // the reply is read once the turn has settled: every stream
+        // has completed, the page no longer shows the turn in flight,
+        // and no follow-up stream has begun. The reply is read from
+        // the streams, and from the page itself when a stream yields
+        // no text, omits part of its message, or is never recognized.
+        // This throws early once the stream-start window elapses with
+        // no stream, no reply, and no turn in flight. The response
+        // window extends while the page shows the turn in flight, up
+        // to the in-flight limit.
         let startDate = Date()
         let deadline = startDate.addingTimeInterval(Double(Floats.responseTimeoutSeconds))
+        let inFlightDeadline = startDate.addingTimeInterval(Double(Floats.inFlightResponseTimeoutSeconds))
         let streamStartDeadline = startDate.addingTimeInterval(Double(Floats.streamStartTimeoutSeconds))
 
-        while Date() < deadline {
-            if let streamCompletion {
-                return try await replyText(
-                    from: streamCompletion,
-                    since: transcript
-                )
-            }
-
-            if !hasStreamStarted {
+        while Date() < inFlightDeadline {
+            if let lastStreamCompletionDate {
+                if await hasTurnSettled(since: lastStreamCompletionDate) {
+                    return try await replyText(
+                        from: streamCompletions,
+                        since: transcript
+                    )
+                }
+            } else if !hasStreamStarted {
                 let renderedReply = await probeRenderedReply(
                     messageID: nil,
                     since: transcript
@@ -59,17 +66,24 @@ private extension ChatGPTWebViewHost {
 
                 if let renderedReply,
                    renderedReply.isComplete,
-                   !renderedReply.text.isEmpty {
+                   !renderedReply.text.isEmpty,
+                   await !isTurnInFlight() {
                     await logDiagnostics("No conversation stream was recognized; the reply was read from the page.")
+                    logLinks(in: renderedReply)
                     return renderedReply.text
                 }
 
                 if Date() >= streamStartDeadline,
                    renderedReply?.messageID == nil,
-                   await (try? probePageState())?.isStreaming != true {
+                   await !isTurnInFlight() {
                     await logDiagnostics("Neither a conversation stream nor a reply appeared.")
                     throw .emptyResponse
                 }
+            }
+
+            if Date() >= deadline,
+               await !isTurnInFlight() {
+                break
             }
 
             try? await Task.sleep(for: .seconds(Double(Floats.turnPollIntervalSeconds)))
@@ -92,6 +106,7 @@ private extension ChatGPTWebViewHost {
             ),
                 renderedReply.isComplete,
                 !renderedReply.text.isEmpty {
+                logLinks(in: renderedReply)
                 return renderedReply.text
             }
 
@@ -101,10 +116,63 @@ private extension ChatGPTWebViewHost {
         return nil
     }
 
+    /// Whether the turn has produced no further stream since the last
+    /// one completed. A stream that is still open keeps the turn in
+    /// flight; otherwise, the turn is in flight only while the page
+    /// shows it so, and for no longer than the follow-up window.
+    func hasTurnSettled(
+        since lastStreamCompletionDate: Date
+    ) async -> Bool {
+        let elapsed = Date().timeIntervalSince(lastStreamCompletionDate)
+        guard elapsed >= Double(Floats.streamSettleIntervalSeconds),
+              openStreamCount == 0 else { return false }
+
+        guard elapsed < Double(Floats.followUpStreamTimeoutSeconds) else { return true }
+        return await !isTurnInFlight()
+    }
+
+    func isTurnInFlight() async -> Bool {
+        await (try? probePageState())?.isStreaming == true
+    }
+
+    func replyText(
+        from completions: [ChatGPTStreamCompletion],
+        since transcript: ChatGPTTranscriptState?
+    ) async throws(LanguageModelError) -> String {
+        // The latest completion of each message supersedes the others.
+        var completedMessageIDs = Set<String>()
+        var texts = [String]()
+
+        for completion in completions.reversed() {
+            if let messageID = completion.messageID,
+               !completedMessageIDs.insert(messageID).inserted {
+                continue
+            }
+
+            if let text = await replyText(
+                from: completion,
+                since: transcript
+            ),
+                !texts.contains(text) {
+                texts.insert(
+                    text,
+                    at: 0
+                )
+            }
+        }
+
+        guard !texts.isEmpty else {
+            await logDiagnostics("The conversation stream yielded no text, and the page showed no reply.")
+            throw .emptyResponse
+        }
+
+        return texts.joined(separator: "\n\n")
+    }
+
     func replyText(
         from completion: ChatGPTStreamCompletion,
         since transcript: ChatGPTTranscriptState?
-    ) async throws(LanguageModelError) -> String {
+    ) async -> String? {
         guard completion.fullText.isEmpty || completion.isFullTextIncomplete else {
             return completion.fullText
         }
@@ -120,10 +188,7 @@ private extension ChatGPTWebViewHost {
             return renderedText
         }
 
-        guard !completion.fullText.isEmpty else {
-            await logDiagnostics("The conversation stream yielded no text, and the page showed no reply.")
-            throw .emptyResponse
-        }
+        guard !completion.fullText.isEmpty else { return nil }
 
         await logDiagnostics("The reply's omitted content could not be read from the page.")
         return completion.fullText
