@@ -7,6 +7,7 @@
 
 /* Native */
 import ObjectiveC
+import os
 import UIKit
 
 @preconcurrency import WebKit
@@ -20,9 +21,21 @@ import UIKit
 /// so driving the page never resigns the host app's own first
 /// responder.
 final class StaticWebView: WKWebView {
+    // MARK: - Constants Accessors
+
+    private typealias Strings = Constants.Strings
+
     // MARK: - Properties
 
     private static let contentViewClassNamePrefix = "WKContentView"
+
+    #if DEBUG
+    private static let logger = Logger(
+        subsystem: Strings.loggerSubsystem,
+        category: Strings.loggerCategory
+    )
+    #endif
+
     private static let refusingClassNamePrefix = "LanguageModels_NonFirstResponder_"
 
     private var hasRefusedContentViewFirstResponder = false
@@ -52,14 +65,6 @@ final class StaticWebView: WKWebView {
         false
     }
 
-    override var inputAccessoryView: UIView? {
-        UIView(frame: .zero)
-    }
-
-    override var inputView: UIView? {
-        UIView(frame: .zero)
-    }
-
     override func didMoveToWindow() {
         super.didMoveToWindow()
         refuseContentViewFirstResponder()
@@ -67,11 +72,20 @@ final class StaticWebView: WKWebView {
 
     // MARK: - Auxiliary
 
+    private func logMissingContentView() {
+        #if DEBUG
+        Self.logger.warning("No \(Self.contentViewClassNamePrefix, privacy: .public) content view was found; its first responder status was not refused.")
+        #endif
+    }
+
     private func refuseContentViewFirstResponder() {
-        guard !hasRefusedContentViewFirstResponder,
-              let contentView = scrollView.subviews.first(where: {
-                  NSStringFromClass(type(of: $0)).hasPrefix(Self.contentViewClassNamePrefix)
-              }) else { return }
+        guard !hasRefusedContentViewFirstResponder else { return }
+
+        guard let contentView = scrollView.subviews.first(where: {
+            NSStringFromClass(type(of: $0)).hasPrefix(Self.contentViewClassNamePrefix)
+        }) else {
+            return logMissingContentView()
+        }
 
         let originalClass: AnyClass = type(of: contentView)
         let refusingClassName = Self.refusingClassNamePrefix + NSStringFromClass(originalClass)

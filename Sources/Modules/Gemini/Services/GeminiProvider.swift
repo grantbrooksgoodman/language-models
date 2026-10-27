@@ -46,9 +46,15 @@ struct GeminiProvider: LanguageModelResponding {
             throw .requestFailed(error.localizedDescription)
         }
 
-        guard let httpResponse = urlResponse as? HTTPURLResponse,
-              (200 ..< 300).contains(httpResponse.statusCode) else {
-            throw .requestFailed("The server did not return a success status code.")
+        guard let httpResponse = urlResponse as? HTTPURLResponse else {
+            throw .requestFailed("The server did not return an HTTP response.")
+        }
+
+        guard (200 ..< 300).contains(httpResponse.statusCode) else {
+            throw .requestFailed(failureDescription(
+                statusCode: httpResponse.statusCode,
+                data: data
+            ))
         }
 
         guard let geminiResponse = try? JSONDecoder().decode(
@@ -70,6 +76,20 @@ struct GeminiProvider: LanguageModelResponding {
 
     // MARK: - Auxiliary
 
+    private func failureDescription(
+        statusCode: Int,
+        data: Data
+    ) -> String {
+        let description = "HTTP \(statusCode)"
+        guard let message = try? JSONDecoder().decode(
+            GeminiErrorResponse.self,
+            from: data
+        ).error?.message,
+            !message.isEmpty else { return description }
+
+        return "\(description): \(message)"
+    }
+
     private func geminiRequest(for prompt: String) -> GeminiRequest {
         .init(
             contents: [.init(
@@ -90,7 +110,7 @@ struct GeminiProvider: LanguageModelResponding {
         apiKey: String
     ) throws(LanguageModelError) -> URLRequest {
         guard let url = URL(
-            string: "\(Strings.geminiEndpointPrefix)\(config.model.rawValue):generateContent?key=\(apiKey)"
+            string: "\(Strings.geminiEndpointPrefix)\(config.model.rawValue):generateContent"
         ) else {
             throw .requestFailed("The request URL could not be constructed.")
         }
@@ -98,8 +118,17 @@ struct GeminiProvider: LanguageModelResponding {
         var urlRequest = URLRequest(url: url)
         urlRequest.assumesHTTP3Capable = true
         urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.timeoutInterval = Double(Floats.geminiRequestTimeoutSeconds)
+
+        urlRequest.setValue(
+            "application/json",
+            forHTTPHeaderField: "Content-Type"
+        )
+
+        urlRequest.setValue(
+            apiKey,
+            forHTTPHeaderField: "x-goog-api-key"
+        )
 
         guard let httpBody = try? JSONEncoder().encode(geminiRequest) else {
             throw .requestFailed("The request body could not be encoded.")

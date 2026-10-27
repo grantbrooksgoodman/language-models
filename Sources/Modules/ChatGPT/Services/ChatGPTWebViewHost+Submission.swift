@@ -16,7 +16,10 @@ extension ChatGPTWebViewHost {
     // MARK: - Methods
 
     func prepareForSubmission() async throws(LanguageModelError) {
-        if currentURL == nil { load() }
+        if currentURL == nil {
+            await ChatGPTContentRules.waitUntilCompiled()
+            load()
+        }
 
         let deadline = Date().addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
         var nextReloadDate = Date().addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))

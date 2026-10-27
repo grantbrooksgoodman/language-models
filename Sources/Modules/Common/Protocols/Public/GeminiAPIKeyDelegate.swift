@@ -13,7 +13,7 @@ import Foundation
 /// An interface for providing a Gemini API key.
 ///
 /// Conform to `GeminiAPIKeyDelegate` and register your implementation
-/// with ``LanguageModel/registerGeminiAPIKeyDelegate(_:)`` to enable
+/// with ``LanguageModels/registerGeminiAPIKeyDelegate(_:)`` to enable
 /// requests to Gemini:
 ///
 /// ```swift
@@ -21,7 +21,7 @@ import Foundation
 ///     let apiKey = "…"
 /// }
 ///
-/// LanguageModel.registerGeminiAPIKeyDelegate(APIKeyProvider())
+/// LanguageModels.registerGeminiAPIKeyDelegate(APIKeyProvider())
 /// ```
 public protocol GeminiAPIKeyDelegate: Sendable {
     /// The API key used to authenticate requests to Gemini.

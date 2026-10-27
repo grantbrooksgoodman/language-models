@@ -30,7 +30,7 @@ import Foundation
 ///
 /// - Important: `LanguageModelSession` is main-actor isolated. Call its
 ///   methods from the main actor. Using Gemini requires a key registered
-///   with ``LanguageModel/registerGeminiAPIKeyDelegate(_:)``.
+///   with ``LanguageModels/registerGeminiAPIKeyDelegate(_:)``.
 @MainActor
 public final class LanguageModelSession {
     // MARK: - Properties

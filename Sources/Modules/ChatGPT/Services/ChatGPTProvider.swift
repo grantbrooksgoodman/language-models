@@ -17,6 +17,7 @@ final class ChatGPTProvider: LanguageModelResponding {
     // MARK: - Methods
 
     func prewarm() {
+        ChatGPTContentRules.precompile()
         host.load()
     }
 

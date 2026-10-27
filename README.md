@@ -35,7 +35,7 @@ LanguageModels supports two backends: **Gemini**, called directly through its HT
 | [`LanguageModelError`](Sources/Modules/Common/Models/LanguageModelError.swift) | An error thrown while producing a reply. |
 | [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift) | Configures a Gemini request: the model and an optional system message. |
 | [`GeminiModel`](Sources/Modules/Gemini/Models/Public/GeminiModel.swift) | The Gemini model that answers the prompt. |
-| [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/GeminiAPIKeyDelegate.swift) | Supplies the Gemini API key. |
+| [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) | Supplies the Gemini API key. |
 | [`LanguageModels`](Sources/LanguageModels.swift) | The configuration entry point; register the Gemini API key delegate here. |
 
 ---
@@ -60,7 +60,7 @@ LanguageModels is distributed as a Swift package. Add it to your project using [
 
 ### Register a Gemini API Key
 
-The Gemini backend authenticates each request with an API key. Supply one by conforming a type to [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/GeminiAPIKeyDelegate.swift) and registering it through [`LanguageModels`](Sources/LanguageModels.swift), once, early in your app's lifecycle:
+The Gemini backend authenticates each request with an API key. Supply one by conforming a type to [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) and registering it through [`LanguageModels`](Sources/LanguageModels.swift), once, early in your app's lifecycle:
 
 ```swift
 import LanguageModels
@@ -211,7 +211,7 @@ LanguageModels adopts Swift 6 strict concurrency.
 - [`LanguageModelSession`](Sources/Modules/Common/Models/LanguageModelSession.swift) is main-actor isolated. Create it and call its methods from the main actor. Its work runs asynchronously, so it does not block the main thread.
 - Sessions are independent and may run concurrently.
 - [`LanguageModelProvider`](Sources/Modules/Common/Models/LanguageModelProvider.swift), [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift), and [`GeminiModel`](Sources/Modules/Gemini/Models/Public/GeminiModel.swift) are `Sendable` values.
-- [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/GeminiAPIKeyDelegate.swift) conforming types must be `Sendable`. Register the delegate from the main actor.
+- [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) conforming types must be `Sendable`. Register the delegate from the main actor.
 
 ---
 
