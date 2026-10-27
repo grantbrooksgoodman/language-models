@@ -33,6 +33,10 @@ enum Constants {
         /// posts to.
         static let bridgeMessageHandlerName = "chatGPTBridge"
 
+        /// Matches the private-use citation markers the conversation
+        /// stream embeds in a reply, and any stray private-use character.
+        static let citationMarkerPattern = #"\x{E200}.*?\x{E201}|[\x{E000}-\x{F8FF}]"#
+
         /// A fixed identifier for the persistent website data store shared
         /// by every host. Must remain stable across launches; not a
         /// ChatGPT detail.

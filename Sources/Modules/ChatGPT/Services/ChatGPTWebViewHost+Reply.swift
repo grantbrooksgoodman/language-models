@@ -18,6 +18,22 @@ extension ChatGPTWebViewHost {
     func reply(
         since transcript: ChatGPTTranscriptState?
     ) async throws(LanguageModelError) -> String {
+        try await unsanitizedReply(since: transcript)
+            .replacingOccurrences(
+                of: Constants.Strings.citationMarkerPattern,
+                with: "",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension ChatGPTWebViewHost {
+    // MARK: - Reply Helpers
+
+    func unsanitizedReply(
+        since transcript: ChatGPTTranscriptState?
+    ) async throws(LanguageModelError) -> String {
         // The reply is read from the intercepted conversation stream, and
         // from the page itself when the stream yields no text, omits part
         // of the reply, or is never recognized. This throws early once
@@ -62,10 +78,6 @@ extension ChatGPTWebViewHost {
         await logDiagnostics("The reply did not complete in time.")
         throw .emptyResponse
     }
-}
-
-private extension ChatGPTWebViewHost {
-    // MARK: - Reply Helpers
 
     func completedRenderedText(
         messageID: String?,

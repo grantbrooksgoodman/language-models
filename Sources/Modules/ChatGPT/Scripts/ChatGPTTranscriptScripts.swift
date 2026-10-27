@@ -25,10 +25,20 @@ enum ChatGPTTranscriptScripts {
 
     function childElements(element) { return Array.prototype.slice.call(element.children); }
 
+    // A source citation chip: a link carrying a favicon, an element
+    // marked as a citation, or a "+N" sources badge.
+    function isCitationChip(element) {
+      if (tagName(element) === 'A' && element.querySelector('img')) { return true; }
+      for (var i = 0; i < element.attributes.length; i++) {
+        if (/citation|cite/i.test(element.attributes[i].name)) { return true; }
+      }
+      return /^\\+\\d+$/.test((element.textContent || '').trim());
+    }
+
     function isSkipped(element) {
       if (skippedTags.indexOf(tagName(element)) !== -1 || element.hidden) { return true; }
       if (element.getAttribute('aria-hidden') === 'true' || element.getAttribute('role') === 'status') { return true; }
-      if (element.hasAttribute('data-message-content-controls')) { return true; }
+      if (element.hasAttribute('data-message-content-controls') || isCitationChip(element)) { return true; }
       var style = getComputedStyle(element);
       return style.display === 'none' || style.visibility === 'hidden';
     }
