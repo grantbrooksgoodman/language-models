@@ -40,10 +40,8 @@ public enum LanguageModelError: LocalizedError {
 
     /// The provider can no longer continue the current conversation.
     ///
-    /// ChatGPT throws this error when the page no longer shows the
-    /// conversation – for example, after its web content process is
-    /// terminated – and loading the conversation again does not
-    /// restore it. The next turn starts a fresh conversation.
+    /// ChatGPT throws this error when its conversation is lost and
+    /// cannot be restored. The next turn starts a fresh conversation.
     case conversationLost
 
     /// The model returned an empty reply, or no reply arrived in time.
@@ -52,32 +50,28 @@ public enum LanguageModelError: LocalizedError {
     /// The prompt was empty after trimming whitespace.
     case invalidPrompt
 
-    /// Evaluating JavaScript in the web view failed.
+    /// A step of the ChatGPT request could not run.
     ///
-    /// The associated value, when present, describes the underlying
-    /// JavaScript error.
+    /// The associated value, when present, describes the failure.
     case javaScriptEvaluationFailed(String? = nil)
 
     /// No API key was available for the request.
     case missingAPIKey
 
-    /// The page's state could not be read.
-    ///
-    /// This typically indicates that the page's structure changed and
-    /// the state probe returned an unexpected result.
+    /// ChatGPT's state could not be read.
     case pageStateUnavailable
 
     /// The network request failed.
     ///
-    /// The associated value describes the failure. For ChatGPT, the
-    /// page could not load – for example, because the device is
+    /// The associated value describes the failure. For ChatGPT, it
+    /// could not be reached – for example, because the device is
     /// offline.
     case requestFailed(String)
 
     /// The session did not become ready in time.
     ///
-    /// The composer never appeared, or a challenge remained
-    /// unresolved, within the readiness window.
+    /// ChatGPT did not become ready to accept a prompt, or a challenge
+    /// remained unresolved, in time.
     case sessionNotReady
 
     /// The prompt could not be submitted.

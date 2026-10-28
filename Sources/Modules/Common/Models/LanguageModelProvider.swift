@@ -22,10 +22,9 @@ import Foundation
 /// request fails. The provider that replies to the first turn answers
 /// every later turn of the conversation, with no fallback.
 public enum LanguageModelProvider: Sendable {
-    /// ChatGPT, driven through its web app in a hidden web view.
+    /// ChatGPT, which needs neither an API key nor an account.
     case chatGPT
 
-    /// Gemini, called directly through its API with the given
-    /// configuration.
+    /// Gemini, called through its API with the given configuration.
     case gemini(config: GeminiConfig)
 }

@@ -29,8 +29,7 @@ public enum LanguageModels {
     private(set) static var geminiAPIKeyDelegate: GeminiAPIKeyDelegate?
 
     /// A Boolean value that indicates whether the ChatGPT provider
-    /// shows its web view so you can solve a human-verification
-    /// challenge.
+    /// shows a human-verification challenge so you can solve it.
     ///
     /// A challenge that does not clear on its own within fifteen
     /// seconds makes a ``LanguageModelSession`` method throw
@@ -44,8 +43,8 @@ public enum LanguageModels {
     ///
     /// The default is `false`.
     ///
-    /// - Important: The web view covers your app's interface while
-    ///   the challenge is shown, and the call that triggered it waits
+    /// - Important: The challenge covers your app's interface while
+    ///   it is shown, and the call that triggered it waits
     ///   until the challenge clears, the close button is tapped, or
     ///   two minutes pass. Presenting requires a key window; without
     ///   one, the call throws ``LanguageModelError/challengeRequired``.
@@ -75,9 +74,9 @@ public enum LanguageModels {
     ///
     /// Each prompt is answered independently by its own
     /// ``LanguageModelSession``, up to ten at a time, or two at a time
-    /// with ``LanguageModelProvider/chatGPT``, because each of those
-    /// sessions holds a hidden web view. Duplicate prompts – within
-    /// this batch or across concurrent calls – share a single in-flight
+    /// with ``LanguageModelProvider/chatGPT``, because ChatGPT-backed
+    /// sessions are resource-intensive. Duplicate prompts – within this
+    /// batch or across concurrent calls – share a single in-flight
     /// request, and collapse to one entry in the returned dictionary.
     /// If any prompt fails, the whole batch fails.
     ///

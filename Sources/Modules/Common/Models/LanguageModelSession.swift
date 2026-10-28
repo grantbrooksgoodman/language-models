@@ -32,9 +32,9 @@ import Foundation
 ///
 /// - Important: `LanguageModelSession` is main-actor isolated. Call its
 ///   methods from the main actor. Using Gemini requires a key registered
-///   with ``LanguageModels/registerGeminiAPIKeyDelegate(_:)``. Once a
-///   session prewarms or sends a prompt to ChatGPT, it holds a hidden
-///   web view until it is released.
+///   with ``LanguageModels/registerGeminiAPIKeyDelegate(_:)``. A
+///   session that has used ChatGPT holds the resources ChatGPT needs
+///   until the session is released.
 @MainActor
 public final class LanguageModelSession {
     // MARK: - Properties
@@ -106,10 +106,8 @@ public final class LanguageModelSession {
     ///   provider fails. If the task that called the method is
     ///   cancelled, the call throws ``LanguageModelError/cancelled``
     ///   without trying another provider. ChatGPT throws
-    ///   ``LanguageModelError/conversationLost`` when the page no
-    ///   longer shows the conversation – for example, after its web
-    ///   content process is terminated – and loading the conversation
-    ///   again does not restore it. The next turn starts a fresh
+    ///   ``LanguageModelError/conversationLost`` when its conversation
+    ///   is lost and cannot be restored. The next turn starts a fresh
     ///   conversation.
     public func response(
         to prompt: String
@@ -140,7 +138,7 @@ public final class LanguageModelSession {
     /// For a session created with ``init()``, the next turn tries
     /// Gemini, then ChatGPT, again. The call runs once the session's
     /// earlier calls have finished, and returns at once if the session
-    /// has not loaded ChatGPT.
+    /// has not used ChatGPT.
     ///
     /// - Throws: ``LanguageModelError`` if a fresh conversation cannot
     ///   be started. If the task that called the method is cancelled,

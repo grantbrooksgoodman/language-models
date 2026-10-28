@@ -2,7 +2,7 @@
 
 A framework for sending prompts to a large language model and receiving its reply behind a single, provider-agnostic API.
 
-LanguageModels supports two backends: **Gemini**, called directly through its HTTP API, and **ChatGPT**, driven through the real ChatGPT web app inside a hidden web view. A [`LanguageModelSession`](Sources/Modules/Common/Models/LanguageModelSession.swift) created without a provider uses Gemini for its low latency and automatically falls back to ChatGPT if the Gemini request fails, then keeps the conversation on whichever provider replied; you can also target either backend explicitly.
+LanguageModels supports two backends: **Gemini**, called through its API, and **ChatGPT**, which needs neither an API key nor an account. A [`LanguageModelSession`](Sources/Modules/Common/Models/LanguageModelSession.swift) created without a provider uses Gemini for its low latency and automatically falls back to ChatGPT if the Gemini request fails, then keeps the conversation on whichever provider replied; you can also target either backend explicitly.
 
 ---
 
@@ -127,7 +127,7 @@ try await session.startNewConversation()
 
 ### Prewarm
 
-Call `prewarm()` once a prompt is imminent to reduce the latency of the first reply. This loads the ChatGPT web view and caches its assets ahead of time (it is a no-op for Gemini). It is safe to call repeatedly and never throws:
+Call `prewarm()` once a prompt is imminent to reduce the latency of the first reply. This prepares the ChatGPT provider ahead of time (Gemini needs no preparation). It is safe to call repeatedly and never throws:
 
 ```swift
 let session = LanguageModelSession()
@@ -140,14 +140,14 @@ session.prewarm()
 
 A session routes each prompt to one or both of the following backends, selected by [`LanguageModelProvider`](Sources/Modules/Common/Models/LanguageModelProvider.swift):
 
-| Provider | How it works | API key | Notes |
-| --- | --- | --- | --- |
-| `.gemini(config:)` | Calls the Gemini HTTP API directly. | Required | Low latency. Configure it with [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift). |
-| `.chatGPT` | Drives the ChatGPT web app in a hidden web view. | Not required | No account needed. Higher latency, and best-effort: it may surface a verification challenge. A reply that ChatGPT delivers as several messages is returned as one, with its messages separated by blank lines. |
+| Provider | API key | Notes |
+| --- | --- | --- |
+| `.gemini(config:)` | Required | Low latency. Configure it with [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift). |
+| `.chatGPT` | Not required | No account needed. Higher latency, and it may surface a verification challenge. A reply that ChatGPT delivers as several messages is returned as one, with its messages separated by blank lines. |
 
 When you construct a session with `LanguageModelSession()`, the first turn of a conversation tries `.gemini(config:)` (with a default configuration) and falls back to `.chatGPT`. The provider that replies to the first turn answers every later turn of the conversation, with no fallback. If that provider fails, the call throws, and the next turn goes to the same provider. If it throws `conversationLost`, the next turn starts over with Gemini. When you construct a session with an explicit provider, only that provider is used – there is no fallback.
 
-Each session is backed by its own resources, so multiple sessions run independently and concurrently. ChatGPT-backed sessions share a single browser session (cookies and cache). Once a session prewarms or sends a prompt to ChatGPT, it holds a hidden web view until it is released.
+Each session is backed by its own resources, so multiple sessions run independently and concurrently. ChatGPT-backed sessions share one set of site data. A session that has used ChatGPT holds the resources ChatGPT needs until the session is released.
 
 ---
 
@@ -189,7 +189,7 @@ ChatGPT may show a human-verification challenge. A challenge that does not clear
 LanguageModels.presentsChallenges = true
 ```
 
-The default is `false`. The web view covers your app's interface while the challenge is shown, and the call that triggered it waits until the challenge clears, the close button is tapped, or two minutes pass. Presenting requires a key window; without one, the call throws `challengeRequired`. Tapping the close button also throws it.
+The default is `false`. The challenge covers your app's interface while it is shown, and the call that triggered it waits until the challenge clears, the close button is tapped, or two minutes pass. Presenting requires a key window; without one, the call throws `challengeRequired`. Tapping the close button also throws it.
 
 ---
 
@@ -201,19 +201,19 @@ The default is `false`. The web view covers your app's interface while the chall
 | --- | --- |
 | `cancelled` | The task that called the method was cancelled. |
 | `challengeRequired` | A human-verification challenge must be resolved before ChatGPT can respond. Set `LanguageModels.presentsChallenges` to `true` to show the challenge so you can solve it. |
-| `conversationLost` | The provider can no longer continue the current conversation. ChatGPT throws this error when the page no longer shows the conversation – for example, after its web content process is terminated – and loading the conversation again does not restore it. The next turn starts a fresh conversation. |
+| `conversationLost` | The provider can no longer continue the current conversation. ChatGPT throws this error when its conversation is lost and cannot be restored. The next turn starts a fresh conversation. |
 | `emptyResponse` | The model returned an empty reply, or no reply arrived in time. |
 | `invalidPrompt` | The prompt was empty after trimming whitespace. |
-| `javaScriptEvaluationFailed` | Evaluating JavaScript in the ChatGPT web view failed. |
+| `javaScriptEvaluationFailed` | A step of the ChatGPT request could not run. |
 | `missingAPIKey` | No Gemini API key has been registered. |
-| `pageStateUnavailable` | ChatGPT's page state could not be read. |
-| `requestFailed` | The network request failed. For ChatGPT, the page could not load – for example, because the device is offline. |
+| `pageStateUnavailable` | ChatGPT's state could not be read. |
+| `requestFailed` | The network request failed. For ChatGPT, it could not be reached – for example, because the device is offline. |
 | `sessionNotReady` | The ChatGPT session did not become ready in time. |
 | `submissionFailed` | The prompt could not be submitted to ChatGPT. |
 
 On the first turn of a session created with `LanguageModelSession()`, an error is thrown only if *every* provider fails; the error reflects the last provider tried. On later turns, the error comes from the conversation's provider. If the task that called the method is cancelled, the call throws `cancelled` without trying another provider. A call that is cancelled while waiting its turn throws `cancelled` before it runs.
 
-In debug builds, the ChatGPT provider logs diagnostic details through the unified logging system – subsystem `LanguageModels`, category `ChatGPT` – whenever a prompt fails to send or the reply can't be read from ChatGPT's conversation stream. The details describe the page's state and its recent network responses; they never include the prompt or the reply.
+In debug builds, the ChatGPT provider logs diagnostic details through the unified logging system – subsystem `LanguageModels`, category `ChatGPT` – whenever a prompt fails to send or the reply can't be read. The details describe ChatGPT's state and its recent responses; they never include the prompt or the reply.
 
 ---
 
@@ -223,8 +223,8 @@ LanguageModels adopts Swift 6 strict concurrency.
 
 - [`LanguageModelSession`](Sources/Modules/Common/Models/LanguageModelSession.swift) is main-actor isolated. Create it and call its methods from the main actor. Its work runs asynchronously, so it does not block the main thread.
 - A session's calls run one at a time, in the order they were made. A call that is cancelled while waiting its turn throws `cancelled` before it runs. `prewarm()` runs at once rather than waiting for the calls before it.
-- Sessions are independent and may run concurrently. Once a session prewarms or sends a prompt to ChatGPT, it holds a hidden web view until it is released.
-- `LanguageModels.responses(to:using:)` answers each prompt in its own session, up to ten at a time, or two at a time with `.chatGPT`, because each of those sessions holds a hidden web view.
+- Sessions are independent and may run concurrently. A session that has used ChatGPT holds the resources ChatGPT needs until the session is released.
+- `LanguageModels.responses(to:using:)` answers each prompt in its own session, up to ten at a time, or two at a time with `.chatGPT`, because ChatGPT-backed sessions are resource-intensive.
 - [`LanguageModelProvider`](Sources/Modules/Common/Models/LanguageModelProvider.swift), [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift), and [`GeminiModel`](Sources/Modules/Gemini/Models/Public/GeminiModel.swift) are `Sendable` values.
 - [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) conforming types must be `Sendable`. Register the delegate from the main actor.
 

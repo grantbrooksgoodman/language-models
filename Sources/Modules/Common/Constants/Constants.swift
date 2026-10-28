@@ -45,8 +45,7 @@ enum Constants {
         static let citationMarkerPattern = #"\x{E200}.*?\x{E201}|[\x{E000}-\x{F8FF}]"#
 
         /// A fixed identifier for the persistent website data store shared
-        /// by every host. Must remain stable across launches; not a
-        /// ChatGPT detail.
+        /// by every host. Must remain stable across launches.
         static let dataStoreIdentifier = "F9C0A1B2-3D4E-4F5A-8B6C-7D8E9F0A1B2C"
 
         /// A desktop macOS Safari user agent, set as the web view's
