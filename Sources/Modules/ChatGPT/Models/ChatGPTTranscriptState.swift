@@ -12,6 +12,7 @@ struct ChatGPTTranscriptState: Decodable, Equatable {
     // MARK: - Properties
 
     let composerText: String
+    let isAnchorPresent: Bool
     let lastAssistantMessageID: String?
     let lastUserMessageID: String?
 

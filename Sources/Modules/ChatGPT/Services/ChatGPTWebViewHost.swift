@@ -21,7 +21,14 @@ final class ChatGPTWebViewHost: NSObject {
 
     nonisolated static let baseURL = URL(string: Strings.baseURLString)!
 
+    /// The last assistant message of the last successful turn.
+    private(set) var anchorMessageID: String?
+
+    private(set) var conversationID: String?
+    private(set) var conversationURL: URL?
     private(set) var hasStreamStarted = false
+    private(set) var isConversationActive = false
+    private(set) var isPageStateLost = false
     private(set) var lastStreamCompletionDate: Date?
 
     /// The number of conversation streams that have started but not
@@ -67,6 +74,14 @@ final class ChatGPTWebViewHost: NSObject {
     }
 
     // MARK: - Methods
+
+    func clearConversation() {
+        anchorMessageID = nil
+        conversationID = nil
+        conversationURL = nil
+        isConversationActive = false
+        isPageStateLost = false
+    }
 
     func evaluate(
         _ script: String,
@@ -122,8 +137,28 @@ final class ChatGPTWebViewHost: NSObject {
         )
     }
 
-    func probeTranscript() async -> ChatGPTTranscriptState? {
-        await evaluateJSON(ChatGPTTranscriptScripts.transcriptProbe)
+    func probeTranscript(
+        anchorMessageID: String? = nil
+    ) async -> ChatGPTTranscriptState? {
+        await evaluateJSON(
+            ChatGPTTranscriptScripts.transcriptProbe,
+            arguments: ["anchorMessageID": anchorMessageID ?? ""]
+        )
+    }
+
+    func recordConversation() async {
+        isConversationActive = true
+
+        if let transcript = await probeTranscript(),
+           let lastAssistantMessageID = transcript.lastAssistantMessageID {
+            anchorMessageID = lastAssistantMessageID
+        }
+
+        if let pageState = try? await probePageState(),
+           let urlConversationID = pageState.urlConversationID {
+            conversationID = urlConversationID
+            conversationURL = currentURL
+        }
     }
 
     func reload() {
@@ -267,6 +302,9 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         teardownWebView()
+        if isConversationActive {
+            isPageStateLost = true
+        }
     }
 }
 

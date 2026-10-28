@@ -36,6 +36,11 @@ public enum LanguageModelError: LocalizedError {
     case challengeRequired
 
     /// The provider can no longer continue the current conversation.
+    ///
+    /// ChatGPT throws this error when the page no longer shows the
+    /// conversation – for example, after its web content process is
+    /// terminated – and loading the conversation again does not
+    /// restore it. The next turn starts a fresh conversation.
     case conversationLost
 
     /// The model returned an empty reply, or no reply arrived in time.

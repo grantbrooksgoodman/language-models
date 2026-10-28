@@ -105,7 +105,12 @@ public final class LanguageModelSession {
     ///   created with ``init()``, the error is thrown only if every
     ///   provider fails. If the task that called the method is
     ///   cancelled, the call throws ``LanguageModelError/cancelled``
-    ///   without trying another provider.
+    ///   without trying another provider. ChatGPT throws
+    ///   ``LanguageModelError/conversationLost`` when the page no
+    ///   longer shows the conversation – for example, after its web
+    ///   content process is terminated – and loading the conversation
+    ///   again does not restore it. The next turn starts a fresh
+    ///   conversation.
     public func response(
         to prompt: String
     ) async throws(LanguageModelError) -> String {

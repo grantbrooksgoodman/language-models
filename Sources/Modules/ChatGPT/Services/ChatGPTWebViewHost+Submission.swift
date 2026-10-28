@@ -56,6 +56,7 @@ extension ChatGPTWebViewHost {
     }
 
     func startNewChat() async throws(LanguageModelError) {
+        clearConversation()
         guard currentURL != nil else {
             return resetStreamState()
         }
@@ -77,22 +78,26 @@ extension ChatGPTWebViewHost {
     }
 
     /// Inserts `prompt` into the live composer and submits it, then returns
-    /// the assistant reply. The stream state is reset *before* submitting
-    /// so no stream message is missed. If the prompt is still in the
-    /// composer once the confirmation window elapses, it is submitted
-    /// once more. A submission the page rejects is retried until the
-    /// readiness window elapses. If the task is cancelled once the
-    /// prompt has been submitted, the page's turn is stopped before the
-    /// call throws.
+    /// the assistant reply. A follow-up is submitted only once the page
+    /// is verified to show the conversation, restoring it once if it
+    /// does not. The stream state is reset *before* submitting so no
+    /// stream message is missed. If the prompt is still in the composer
+    /// once the confirmation window elapses, it is submitted once more.
+    /// A submission the page rejects is retried until the readiness
+    /// window elapses. If the task is cancelled once the prompt has
+    /// been submitted, the page's turn is stopped before the call
+    /// throws. The conversation's anchors are recorded once the reply
+    /// is read.
     func respondViaComposer(_ prompt: String) async throws(LanguageModelError) -> String {
-        try await prepareForSubmission()
+        try await prepareForTurn()
 
         let transcript = await probeTranscript()
         resetStreamState()
         try await submitComposerWhenReady(prompt)
 
+        let reply: String
         do throws(LanguageModelError) {
-            return try await replyAfterSubmission(
+            reply = try await replyAfterSubmission(
                 of: prompt,
                 since: transcript
             )
@@ -100,6 +105,86 @@ extension ChatGPTWebViewHost {
             await stopStreaming()
             throw .cancelled
         }
+
+        await recordConversation()
+        return reply
+    }
+}
+
+private extension ChatGPTWebViewHost {
+    // MARK: - Conversation Helpers
+
+    func isConversationIntact() async -> Bool {
+        guard !isPageStateLost else { return false }
+
+        if let conversationID {
+            guard let pageState = try? await probePageState(),
+                  pageState.urlConversationID == conversationID else { return false }
+        }
+
+        guard let anchorMessageID else { return true }
+        return await probeTranscript(anchorMessageID: anchorMessageID)?.isAnchorPresent == true
+    }
+
+    func loadConversation(_ url: URL) async {
+        if currentURL == nil {
+            await ChatGPTContentRules.waitUntilCompiled()
+        }
+
+        guard currentURL != url else {
+            return reload()
+        }
+
+        load(url)
+    }
+
+    func loseConversation() async throws(LanguageModelError) -> Never {
+        await logDiagnostics("The page no longer shows the conversation.")
+        clearConversation()
+        throw .conversationLost
+    }
+
+    func prepareForTurn() async throws(LanguageModelError) {
+        guard isConversationActive else {
+            return try await prepareForSubmission()
+        }
+
+        // A conversation whose page was lost is restored before the
+        // readiness wait, which would otherwise load a new chat.
+        if !isPageStateLost {
+            try await prepareForSubmission()
+            if try await waitForConversation() {
+                return
+            }
+        }
+
+        guard let conversationURL else {
+            try await loseConversation()
+        }
+
+        await loadConversation(conversationURL)
+        try await prepareForSubmission()
+
+        guard try await waitForConversation() else {
+            try await loseConversation()
+        }
+    }
+
+    /// The page may still be rendering its messages once its composer
+    /// is ready, so the check is repeated until it passes or the window
+    /// elapses.
+    func waitForConversation() async throws(LanguageModelError) -> Bool {
+        let deadline = Date().addingTimeInterval(Double(Floats.conversationVerificationTimeoutSeconds))
+
+        repeat {
+            if await isConversationIntact() {
+                return true
+            }
+
+            try await sleep(for: Floats.readinessPollIntervalSeconds)
+        } while Date() < deadline
+
+        return false
     }
 }
 

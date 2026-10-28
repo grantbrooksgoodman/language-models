@@ -190,7 +190,7 @@ The `systemMessage`, when provided, steers the model's response and is sent alon
 | --- | --- |
 | `cancelled` | The task that called the method was cancelled. |
 | `challengeRequired` | A human-verification challenge must be resolved before ChatGPT can respond. |
-| `conversationLost` | The provider can no longer continue the current conversation. |
+| `conversationLost` | The provider can no longer continue the current conversation. ChatGPT throws this error when the page no longer shows the conversation – for example, after its web content process is terminated – and loading the conversation again does not restore it. The next turn starts a fresh conversation. |
 | `emptyResponse` | The model returned an empty reply, or no reply arrived in time. |
 | `invalidPrompt` | The prompt was empty after trimming whitespace. |
 | `javaScriptEvaluationFailed` | Evaluating JavaScript in the ChatGPT web view failed. |
