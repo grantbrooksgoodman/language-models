@@ -173,21 +173,25 @@ private extension ChatGPTWebViewHost {
         from completion: ChatGPTStreamCompletion,
         since transcript: ChatGPTTranscriptState?
     ) async throws(LanguageModelError) -> String? {
-        guard let text = try await unsanitizedReplyText(
+        guard let unsanitized = try await unsanitizedReplyText(
             from: completion,
             since: transcript
-        )?.strippingCitationLabels(completion.citationLabels),
-            !text.isEmpty else { return nil }
+        ) else { return nil }
 
-        return text
+        // Only the page and the stream's fallback rendering show a
+        // citation as its label.
+        let text = unsanitized.isLabeled
+            ? unsanitized.text.strippingCitationLabels(completion.citationLabels)
+            : unsanitized.text
+        return text.isEmpty ? nil : text
     }
 
     func unsanitizedReplyText(
         from completion: ChatGPTStreamCompletion,
         since transcript: ChatGPTTranscriptState?
-    ) async throws(LanguageModelError) -> String? {
+    ) async throws(LanguageModelError) -> (text: String, isLabeled: Bool)? {
         guard completion.fullText.isEmpty || completion.isFullTextIncomplete else {
-            return completion.fullText
+            return (completion.fullText, completion.textSource == .fallbackMarkdown)
         }
 
         if let renderedText = try await completedRenderedText(
@@ -198,43 +202,45 @@ private extension ChatGPTWebViewHost {
                 await logDiagnostics("The conversation stream yielded no text; the reply was read from the page.")
             }
 
-            return renderedText
+            return (renderedText, true)
         }
 
         guard !completion.fullText.isEmpty else { return nil }
 
         await logDiagnostics("The reply's omitted content could not be read from the page.")
-        return completion.fullText
+        return (completion.fullText, true)
     }
 }
 
 private extension String {
-    /// Removes a source citation rendered at the end of any line – a
-    /// label among `labels`, or a "+N" sources badge – repeatedly, so
-    /// a run of citations is removed. A label elsewhere in a line is
-    /// kept.
+    /// Removes the run of source citations rendered at the end of any
+    /// line – labels among `labels` and "+N" sources badges, each
+    /// preceded by whitespace – when the run is the whole line or
+    /// follows sentence-ending punctuation. Lines in fenced code
+    /// blocks are kept as they are.
     func strippingCitationLabels(_ labels: [String]) -> String {
         guard !labels.isEmpty else { return self }
 
         let labels = labels.sorted { $0.count > $1.count }
+        var isInCodeBlock = false
         return components(separatedBy: "\n").map { line in
-            var line = line.trimmingTrailingWhitespace
-            while true {
-                if let badgeRange = line.range(
-                    of: #"\s*\+\d+$"#,
-                    options: .regularExpression
-                ) {
-                    line.removeSubrange(badgeRange)
-                    continue
-                }
-
-                guard let label = labels.first(where: { line.hasSuffix($0) && line.isLabelOnlyOrPrecededByWhitespace(before: $0) }) else { break }
-                line.removeLast(label.count)
-                line = line.trimmingTrailingWhitespace
+            if line.isCodeFence {
+                isInCodeBlock.toggle()
+                return line
             }
 
-            return line
+            return isInCodeBlock ? line : line.strippingTrailingCitations(labels)
         }.joined(separator: "\n")
+    }
+
+    var isCodeFence: Bool {
+        let line = trimmingCharacters(in: .whitespaces)
+        return line.hasPrefix("```") || line.hasPrefix("~~~")
+    }
+
+    var endsWithSentencePunctuation: Bool {
+        guard let last = trimmingTrailingWhitespace.last else { return false }
+        return ".!?)]".contains(last)
     }
 
     var trimmingTrailingWhitespace: String {
@@ -244,5 +250,31 @@ private extension String {
     func isLabelOnlyOrPrecededByWhitespace(before suffix: String) -> Bool {
         guard count > suffix.count else { return true }
         return self[index(endIndex, offsetBy: -suffix.count - 1)].isWhitespace
+    }
+
+    func strippingTrailingCitations(_ labels: [String]) -> String {
+        var line = trimmingTrailingWhitespace
+        var hasCitations = false
+
+        while true {
+            if let badgeRange = line.range(
+                of: #"\s+\+\d+$"#,
+                options: .regularExpression
+            ) {
+                line.removeSubrange(badgeRange)
+                hasCitations = true
+                continue
+            }
+
+            guard let label = labels.first(where: { line.hasSuffix($0) && line.isLabelOnlyOrPrecededByWhitespace(before: $0) }) else { break }
+            line.removeLast(label.count)
+            line = line.trimmingTrailingWhitespace
+            hasCitations = true
+        }
+
+        guard hasCitations,
+              line.isEmpty || line.endsWithSentencePunctuation else { return self }
+
+        return line
     }
 }

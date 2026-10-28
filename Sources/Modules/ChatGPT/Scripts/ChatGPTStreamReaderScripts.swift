@@ -57,9 +57,11 @@ enum ChatGPTStreamReaderScripts {
         if (object && typeof object === 'object') { Object.keys(object).forEach(function(key){ keys[key] = true; }); }
       }
 
-      // Collects every short string in a reference – and the host of
-      // every URL – as a label a citation may be rendered with.
-      function collectLabels(value, labels, depth) {
+      // Collects the labels a citation may be rendered with: the host
+      // of every URL, with and without `www.`, and the strings under
+      // keys that name a display label.
+      var labelKeys = ['attribution', 'label', 'name', 'title'];
+      function collectLabels(value, labels, depth, key) {
         if (depth > 6 || value === null || value === undefined) { return; }
         if (typeof value === 'string') {
           var text = value.trim();
@@ -68,12 +70,12 @@ enum ChatGPTStreamReaderScripts {
             try { var host = new URL(text).hostname; labels[host] = true; labels[host.replace(/^www\\./, '')] = true; } catch {}
             return;
           }
-          labels[text] = true;
+          if (labelKeys.indexOf(key) !== -1) { labels[text] = true; }
         } else if (Array.isArray(value)) {
-          value.forEach(function(element){ collectLabels(element, labels, depth + 1); });
+          value.forEach(function(element){ collectLabels(element, labels, depth + 1, key); });
         } else if (typeof value === 'object') {
           recordKeys(shape.referenceKeys, value);
-          Object.keys(value).forEach(function(key){ collectLabels(value[key], labels, depth + 1); });
+          Object.keys(value).forEach(function(childKey){ collectLabels(value[childKey], labels, depth + 1, childKey); });
         }
       }
 
@@ -93,6 +95,7 @@ enum ChatGPTStreamReaderScripts {
           fullText: markdown || fallbackMarkdown,
           isFullTextIncomplete: !markdown && (requiredComponents.length > 0 || citationLabels.length > 0 || hasLinks),
           messageID: latestMessageID,
+          textSource: shape.textSource,
           type: 'completed'
         });
       }
@@ -125,7 +128,7 @@ enum ChatGPTStreamReaderScripts {
         }
         if (event.references !== undefined && event.references !== null) {
           var labels = citationLabelsByMessageID[messageID] || (citationLabelsByMessageID[messageID] = {});
-          collectLabels(event.references, labels, 0);
+          collectLabels(event.references, labels, 0, null);
         }
       }
 
@@ -229,7 +232,7 @@ enum ChatGPTStreamReaderScripts {
         var text = extractAssistantText(buffer);
         shape.length = buffer.length;
         shape.textSource = text ? 'partialHTML' : 'none';
-        post({ citationLabels: [], fullText: text, isFullTextIncomplete: false, messageID: null, type: 'completed' });
+        post({ citationLabels: [], fullText: text, isFullTextIncomplete: false, messageID: null, textSource: shape.textSource, type: 'completed' });
       }
 
       function pump() {
