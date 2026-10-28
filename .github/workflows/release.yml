@@ -1,0 +1,35 @@
+#
+#  release.yml
+#
+#  Created by Grant Brooks Goodman.
+#  Copyright © NEOTechnica Corporation. All rights reserved.
+#
+
+# Mints a semantic version tag and a GitHub release for every
+# push to a Swift package's default branch. The rules are
+# documented at https://github.com/grantbrooksgoodman/swift-release.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  cancel-in-progress: false
+  group: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: grantbrooksgoodman/swift-release@main
+        with:
+          initial-version: "2.2.0"
