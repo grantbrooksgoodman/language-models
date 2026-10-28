@@ -21,6 +21,10 @@ import Foundation
 /// LanguageModels.registerGeminiAPIKeyDelegate(APIKeyProvider())
 /// ```
 public enum LanguageModels {
+    // MARK: - Constants Accessors
+
+    private typealias Ints = Constants.Ints
+
     // MARK: - Properties
 
     /// The registered Gemini API key delegate, or `nil` if none has
@@ -51,9 +55,6 @@ public enum LanguageModels {
     ///   Tapping the close button also throws it.
     @MainActor
     public static var presentsChallenges = false
-
-    private static let maxConcurrentChatGPTOperations = 2
-    private static let maxConcurrentGeminiOperations = 10
 
     // MARK: - Methods
 
@@ -159,8 +160,8 @@ public enum LanguageModels {
         for provider: LanguageModelProvider
     ) -> Int {
         switch provider {
-        case .chatGPT: maxConcurrentChatGPTOperations
-        case .gemini: maxConcurrentGeminiOperations
+        case .chatGPT: Ints.maxConcurrentChatGPTOperations
+        case .gemini: Ints.maxConcurrentGeminiOperations
         }
     }
 }

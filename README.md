@@ -158,12 +158,12 @@ Each session is backed by its own resources, so multiple sessions run independen
 [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift) configures a Gemini request. Both parameters have defaults:
 
 ```swift
-// Defaults: the flash25 model, no system message.
+// Defaults: the flash38 model, no system message.
 let config = GeminiConfig()
 
 // A specific model and a system message sent alongside every prompt.
 let config = GeminiConfig(
-    model: .flash20,
+    model: .flash25,
     systemMessage: "You are a terse assistant."
 )
 
@@ -178,8 +178,8 @@ The `systemMessage`, when provided, steers the model's response and is sent alon
 
 | Case | Model |
 | --- | --- |
-| `flash20` | `gemini-2.0-flash` |
-| `flash25` | `gemini-2.5-flash` (default) |
+| `flash25` | `gemini-2.5-flash` |
+| `flash38` | `gemini-3.8-flash` (default) |
 
 ### Challenge Presentation
 

@@ -13,13 +13,8 @@ extension ChatGPTWebViewHost {
     // MARK: - Constants Accessors
 
     private typealias Floats = Constants.CGFloats
+    private typealias Ints = Constants.Ints
     private typealias Strings = Constants.Strings
-
-    // MARK: - Properties
-
-    /// WebKit's "frame load interrupted" error, raised by in-page
-    /// navigation.
-    private static let frameLoadInterruptedErrorCode = 102
 
     // MARK: - Methods
 
@@ -27,7 +22,7 @@ extension ChatGPTWebViewHost {
         let error = error as NSError
         return switch error.domain {
         case NSURLErrorDomain: error.code == NSURLErrorCancelled
-        case Strings.webKitErrorDomain: error.code == Self.frameLoadInterruptedErrorCode
+        case Strings.webKitErrorDomain: error.code == Ints.frameLoadInterruptedErrorCode
         default: false
         }
     }

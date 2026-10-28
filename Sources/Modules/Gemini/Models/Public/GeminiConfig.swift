@@ -35,11 +35,11 @@ public struct GeminiConfig: Sendable {
     ///
     /// - Parameters:
     ///   - model: The model that answers the prompt. The default is
-    ///     ``GeminiModel/flash25``.
+    ///     ``GeminiModel/flash38``.
     ///   - systemMessage: An optional instruction that steers the
     ///     model's response. The default is `nil`.
     public init(
-        model: GeminiModel = .flash25,
+        model: GeminiModel = .flash38,
         systemMessage: String? = nil
     ) {
         self.model = model

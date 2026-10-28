@@ -30,6 +30,17 @@ enum Constants {
         static let turnPollIntervalSeconds: CGFloat = 0.25
     }
 
+    // MARK: - Int
+
+    enum Ints {
+        /// WebKit's legacy "frame load interrupted" error code, raised by
+        /// in-page navigation.
+        static let frameLoadInterruptedErrorCode = 102
+
+        static let maxConcurrentChatGPTOperations = 2
+        static let maxConcurrentGeminiOperations = 10
+    }
+
     // MARK: - String
 
     enum Strings {

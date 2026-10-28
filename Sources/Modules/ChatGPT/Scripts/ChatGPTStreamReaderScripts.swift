@@ -11,9 +11,10 @@ import Foundation
 /// The injected JavaScript that parses the mobile-web conversation
 /// reply.
 ///
-/// The logged-out iOS web view is served the mobile-web (`unauth-mweb`)
-/// experience, whose conversation response streams in one of two
-/// formats:
+/// The logged-out web view – which presents a desktop Safari user
+/// agent at a phone-width viewport – is served the mobile-web
+/// (`unauth-mweb`) experience, whose conversation response streams in
+/// one of two formats:
 ///
 /// - `application/vnd.openai.conversation-source+ndjson` – newline-
 ///   delimited JSON events; an `end` event closes the stream. Each

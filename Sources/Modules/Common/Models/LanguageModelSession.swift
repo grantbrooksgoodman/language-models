@@ -30,11 +30,12 @@ import Foundation
 /// A session's calls run one at a time, in the order they were made.
 /// Sessions are independent and may run concurrently.
 ///
-/// - Important: `LanguageModelSession` is main-actor isolated. Call its
-///   methods from the main actor. Using Gemini requires a key registered
-///   with ``LanguageModels/registerGeminiAPIKeyDelegate(_:)``. A
-///   session that has used ChatGPT holds the resources ChatGPT needs
-///   until the session is released.
+/// - Important: `LanguageModelSession` is main-actor isolated. Create
+///   it and call its methods from the main actor. Using Gemini requires
+///   a key registered with
+///   ``LanguageModels/registerGeminiAPIKeyDelegate(_:)``. A session
+///   that has used ChatGPT holds the resources ChatGPT needs until the
+///   session is released.
 @MainActor
 public final class LanguageModelSession {
     // MARK: - Properties
