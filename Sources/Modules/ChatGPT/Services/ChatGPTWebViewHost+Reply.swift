@@ -203,6 +203,11 @@ private extension ChatGPTWebViewHost {
         while Date.now < inFlightDeadline {
             if let lastStreamCompletionDate = events.lastStreamCompletionDate {
                 if hasTurnSettled(since: lastStreamCompletionDate) {
+                    log(
+                        "The turn settled with \(events.streamCompletions.count) stream(s).",
+                        level: .debug
+                    )
+
                     return try await replyText(
                         from: events.streamCompletions,
                         since: transcript

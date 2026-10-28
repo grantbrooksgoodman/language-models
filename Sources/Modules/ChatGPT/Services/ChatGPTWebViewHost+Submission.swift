@@ -16,6 +16,11 @@ extension ChatGPTWebViewHost {
     // MARK: - Methods
 
     func prepareForSubmission() async throws(LanguageModelError) {
+        log(
+            "Waiting for the page to be ready.",
+            level: .debug
+        )
+
         if currentURL == nil {
             await ChatGPTContentRules.waitUntilCompiled()
             load()
@@ -29,6 +34,7 @@ extension ChatGPTWebViewHost {
 
             if let state = events.pageState {
                 if state.isChallengePresent {
+                    log("A challenge is present.")
                     try await resolveChallenge()
                     reloadDate = Date.now.addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
                     continue
@@ -40,11 +46,22 @@ extension ChatGPTWebViewHost {
                     // interval, so readiness is confirmed by a probe.
                     guard let confirmed = try? await probePageState() else { return }
                     events.record(pageState: confirmed)
-                    guard confirmed.isChallengePresent || confirmed.isStreaming || !confirmed.isComposerPresent else { return }
+                    guard confirmed.isChallengePresent || confirmed.isStreaming || !confirmed.isComposerPresent else {
+                        return log(
+                            "The page is ready.",
+                            level: .debug
+                        )
+                    }
+
                     continue
                 }
 
                 if state.isLoggedOutModalPresent {
+                    log(
+                        "Dismissing the logged-out sheet.",
+                        level: .debug
+                    )
+
                     await dismissGate()
                 }
             }
@@ -71,6 +88,7 @@ extension ChatGPTWebViewHost {
             }
 
             if shouldReload() {
+                log(lastNavigationError == nil ? "The page sat idle without a composer." : "Retrying after the navigation failure.")
                 reload()
             }
 
@@ -90,26 +108,24 @@ extension ChatGPTWebViewHost {
     /// throws. The conversation's anchors are recorded once the reply
     /// is read.
     func respondViaComposer(_ prompt: String) async throws(LanguageModelError) -> String {
-        try await prepareForTurn()
-
-        let transcript = await probeTranscript()
-        beginTurn()
-        defer { endTurn() }
-        try await submitComposerWhenReady(prompt)
-
-        let reply: String
+        let startDate = Date.now
         do throws(LanguageModelError) {
-            reply = try await replyAfterSubmission(
-                of: prompt,
-                since: transcript
+            let reply = try await respond(to: prompt)
+            log("The turn finished in \(elapsedDescription(since: startDate)) with a \(reply.count)-char reply.")
+            log(
+                "Reply: \(reply)",
+                level: .debug
             )
-        } catch .cancelled {
-            await stopStreaming()
-            throw .cancelled
-        }
 
-        await recordConversation()
-        return reply
+            return reply
+        } catch {
+            logFailure(
+                error,
+                since: startDate
+            )
+
+            throw error
+        }
     }
 
     func startNewChat() async throws(LanguageModelError) {
@@ -118,6 +134,7 @@ extension ChatGPTWebViewHost {
             return events.resetStreamState()
         }
 
+        log("Starting a new chat.")
         _ = try? await evaluate(ChatGPTSubmissionScripts.startNewChat)
 
         try await events.wait(
@@ -138,6 +155,10 @@ private extension ChatGPTWebViewHost {
 
     func dismissGate() async {
         _ = try? await evaluate(ChatGPTSubmissionScripts.dismissGate)
+    }
+
+    func elapsedDescription(since startDate: Date) -> String {
+        String(format: "%.2f s", Date.now.timeIntervalSince(startDate))
     }
 
     func isConversationIntact() async -> Bool {
@@ -172,7 +193,14 @@ private extension ChatGPTWebViewHost {
             deadline: Date.now.addingTimeInterval(Double(Floats.submissionConfirmationTimeoutSeconds))
         )
 
-        guard !isSent else { return false }
+        guard !isSent else {
+            log(
+                "The send was confirmed.",
+                level: .debug
+            )
+
+            return false
+        }
 
         // No signal confirmed the send. The prompt is unsent only if the
         // composer still holds it, so an unconfirmed but successful send
@@ -195,8 +223,24 @@ private extension ChatGPTWebViewHost {
         load(url)
     }
 
+    func logFailure(
+        _ error: LanguageModelError,
+        since startDate: Date
+    ) {
+        // A cancellation is expected; everything else is a failure.
+        if case .cancelled = error {
+            return log("The turn was cancelled after \(elapsedDescription(since: startDate)).")
+        }
+
+        log(
+            "The turn failed after \(elapsedDescription(since: startDate)): \(error.localizedDescription)",
+            level: .error,
+            error: error
+        )
+    }
+
     func loseConversation() async throws(LanguageModelError) -> Never {
-        await logDiagnostics("The page no longer shows the conversation.")
+        await logDiagnostics("The page no longer shows the conversation; it is lost.")
         clearConversation()
         throw .conversationLost
     }
@@ -224,6 +268,7 @@ private extension ChatGPTWebViewHost {
             try await loseConversation()
         }
 
+        log("Restoring the conversation from \(conversationURL.absoluteString).")
         await loadConversation(conversationURL)
         try await prepareForSubmission()
 
@@ -243,7 +288,7 @@ private extension ChatGPTWebViewHost {
             return try await reply(since: transcript)
         }
 
-        await logDiagnostics("The page left the prompt unsent; submitting it again.")
+        log("The page left the prompt unsent; submitting it again.")
         try await submitComposerWhenReady(prompt)
 
         guard try await isPromptUnsent(
@@ -255,6 +300,36 @@ private extension ChatGPTWebViewHost {
 
         await logDiagnostics("The prompt was not sent.")
         throw .submissionFailed("The prompt was not sent.")
+    }
+
+    func respond(to prompt: String) async throws(LanguageModelError) -> String {
+        try await prepareForTurn()
+
+        let transcript = await probeTranscript()
+        beginTurn()
+        defer { endTurn() }
+        log("Turn \(events.turnGeneration) started with a \(prompt.count)-char prompt.")
+        log(
+            "Prompt: \(prompt)",
+            level: .debug
+        )
+
+        try await submitComposerWhenReady(prompt)
+
+        let reply: String
+        do throws(LanguageModelError) {
+            reply = try await replyAfterSubmission(
+                of: prompt,
+                since: transcript
+            )
+        } catch .cancelled {
+            log("Stopping the stream after the cancellation.")
+            await stopStreaming()
+            throw .cancelled
+        }
+
+        await recordConversation()
+        return reply
     }
 
     func stopStreaming() async {
@@ -296,6 +371,11 @@ private extension ChatGPTWebViewHost {
                     await logDiagnostics(reason)
                     throw .submissionFailed(reason)
                 }
+
+                log(
+                    "The submission was rejected (\(reason)); retrying once the page changes.",
+                    level: .debug
+                )
             }
 
             let sequence = events.sequence

@@ -13,6 +13,7 @@ final class GeminiProvider: LanguageModelResponding {
     // MARK: - Constants Accessors
 
     private typealias Floats = Constants.CGFloats
+
     private typealias Strings = Constants.Strings
 
     // MARK: - Properties
@@ -32,6 +33,123 @@ final class GeminiProvider: LanguageModelResponding {
     func prewarm() {}
 
     func response(to prompt: String) async throws(LanguageModelError) -> String {
+        let startDate = Date.now
+        log("Requesting a reply from \(config.model.rawValue) with \(history.count) prior turns.")
+        log(
+            "Prompt: \(prompt)",
+            level: .debug
+        )
+
+        do throws(LanguageModelError) {
+            let reply = try await reply(to: prompt)
+            log("Received a \(reply.count)-char reply in \(String(format: "%.2f s", Date.now.timeIntervalSince(startDate))).")
+            log(
+                "Reply: \(reply)",
+                level: .debug
+            )
+
+            return reply
+        } catch {
+            if case .cancelled = error {
+                log("The request was cancelled.")
+            } else {
+                log(
+                    error.localizedDescription,
+                    level: .error,
+                    error: error
+                )
+            }
+
+            throw error
+        }
+    }
+
+    func startNewConversation() async throws(LanguageModelError) {
+        log("Cleared the conversation history.")
+        history = []
+    }
+
+    // MARK: - Auxiliary
+
+    private func failureDescription(
+        statusCode: Int,
+        data: Data
+    ) -> String {
+        let description = "HTTP \(statusCode)"
+        guard let message = try? JSONDecoder().decode(
+            GeminiErrorResponse.self,
+            from: data
+        ).error?.message,
+            !message.isEmpty else { return description }
+
+        return "\(description): \(message)"
+    }
+
+    private func geminiRequest(for userTurn: GeminiRequest.Content) -> GeminiRequest {
+        .init(
+            contents: history + [userTurn],
+            systemInstruction: config.systemMessage.map { systemMessage in
+                .init(
+                    parts: [.init(text: systemMessage)],
+                    role: "system"
+                )
+            }
+        )
+    }
+
+    private func log(
+        _ message: String,
+        level: LanguageModelLogEntry.Level = .info,
+        error: LanguageModelError? = nil,
+        fileName: String = #fileID,
+        function: String = #function,
+        line: Int = #line
+    ) {
+        LoggingService.log(
+            message,
+            level: level,
+            category: Strings.geminiLoggerCategory,
+            error: error,
+            fileName: fileName,
+            function: function,
+            line: line
+        )
+    }
+
+    private func makeURLRequest(
+        _ geminiRequest: GeminiRequest,
+        apiKey: String
+    ) throws(LanguageModelError) -> URLRequest {
+        guard let url = URL(
+            string: "\(Strings.geminiEndpointPrefix)\(config.model.rawValue):generateContent"
+        ) else {
+            throw .requestFailed("The request URL could not be constructed.")
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.assumesHTTP3Capable = true
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = Double(Floats.geminiRequestTimeoutSeconds)
+
+        urlRequest.setValue(
+            "application/json",
+            forHTTPHeaderField: "Content-Type"
+        )
+
+        urlRequest.setValue(
+            apiKey,
+            forHTTPHeaderField: "x-goog-api-key"
+        )
+
+        guard let httpBody = try? JSONEncoder().encode(geminiRequest) else {
+            throw .requestFailed("The request body could not be encoded.")
+        }
+
+        urlRequest.httpBody = httpBody
+        return urlRequest
+    }
+
+    private func reply(to prompt: String) async throws(LanguageModelError) -> String {
         guard !Task.isCancelled else {
             throw .cancelled
         }
@@ -94,70 +212,5 @@ final class GeminiProvider: LanguageModelResponding {
         ))
 
         return text
-    }
-
-    func startNewConversation() async throws(LanguageModelError) {
-        history = []
-    }
-
-    // MARK: - Auxiliary
-
-    private func failureDescription(
-        statusCode: Int,
-        data: Data
-    ) -> String {
-        let description = "HTTP \(statusCode)"
-        guard let message = try? JSONDecoder().decode(
-            GeminiErrorResponse.self,
-            from: data
-        ).error?.message,
-            !message.isEmpty else { return description }
-
-        return "\(description): \(message)"
-    }
-
-    private func geminiRequest(for userTurn: GeminiRequest.Content) -> GeminiRequest {
-        .init(
-            contents: history + [userTurn],
-            systemInstruction: config.systemMessage.map { systemMessage in
-                .init(
-                    parts: [.init(text: systemMessage)],
-                    role: "system"
-                )
-            }
-        )
-    }
-
-    private func makeURLRequest(
-        _ geminiRequest: GeminiRequest,
-        apiKey: String
-    ) throws(LanguageModelError) -> URLRequest {
-        guard let url = URL(
-            string: "\(Strings.geminiEndpointPrefix)\(config.model.rawValue):generateContent"
-        ) else {
-            throw .requestFailed("The request URL could not be constructed.")
-        }
-
-        var urlRequest = URLRequest(url: url)
-        urlRequest.assumesHTTP3Capable = true
-        urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = Double(Floats.geminiRequestTimeoutSeconds)
-
-        urlRequest.setValue(
-            "application/json",
-            forHTTPHeaderField: "Content-Type"
-        )
-
-        urlRequest.setValue(
-            apiKey,
-            forHTTPHeaderField: "x-goog-api-key"
-        )
-
-        guard let httpBody = try? JSONEncoder().encode(geminiRequest) else {
-            throw .requestFailed("The request body could not be encoded.")
-        }
-
-        urlRequest.httpBody = httpBody
-        return urlRequest
     }
 }

@@ -32,6 +32,23 @@ public enum LanguageModels {
     @MainActor
     private(set) static var geminiAPIKeyDelegate: GeminiAPIKeyDelegate?
 
+    /// The registered log delegate, or `nil` if none has been
+    /// registered.
+    @MainActor
+    private(set) static var logDelegate: LanguageModelLogDelegate?
+
+    /// The amount of detail LanguageModels logs.
+    ///
+    /// Entries go to the delegate registered with
+    /// ``registerLogDelegate(_:)``, or to the unified logging system
+    /// under the `LanguageModels` subsystem. The default is
+    /// ``LanguageModelLogLevel/off``.
+    ///
+    /// - Important: ``LanguageModelLogLevel/debug`` logs the text of
+    ///   every prompt and reply.
+    @MainActor
+    public static var logLevel = LanguageModelLogLevel.off
+
     /// A Boolean value that indicates whether the ChatGPT provider
     /// shows a human-verification challenge so you can solve it.
     ///
@@ -68,6 +85,20 @@ public enum LanguageModels {
         _ delegate: GeminiAPIKeyDelegate
     ) {
         geminiAPIKeyDelegate = delegate
+    }
+
+    /// Registers the delegate that receives the entries LanguageModels
+    /// logs.
+    ///
+    /// Calling this method replaces any previously registered delegate.
+    /// Entries are logged only for the levels ``logLevel`` includes.
+    ///
+    /// - Parameter delegate: The delegate that receives the entries.
+    @MainActor
+    public static func registerLogDelegate(
+        _ delegate: LanguageModelLogDelegate
+    ) {
+        logDelegate = delegate
     }
 
     /// Sends each prompt to a language model concurrently and returns a

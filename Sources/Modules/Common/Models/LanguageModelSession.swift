@@ -128,6 +128,12 @@ public final class LanguageModelSession {
     ) async throws(LanguageModelError) -> String {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
+            log(
+                "The prompt is empty.",
+                level: .error,
+                error: .invalidPrompt
+            )
+
             throw .invalidPrompt
         }
 
@@ -139,9 +145,11 @@ public final class LanguageModelSession {
                 return try await firstResponse(to: trimmed)
             }
 
+            log("Sending the prompt to \(name(of: conversationResponder)).")
             do throws(LanguageModelError) {
                 return try await conversationResponder.response(to: trimmed)
             } catch .conversationLost {
+                log("The conversation was lost; the next turn starts over.")
                 self.conversationResponder = nil
                 throw .conversationLost
             }
@@ -167,6 +175,7 @@ public final class LanguageModelSession {
         }
 
         try await perform { [self] () async throws(LanguageModelError) in
+            log("Starting a new conversation.")
             for responder in responders {
                 try await responder.startNewConversation()
             }
@@ -203,12 +212,20 @@ public final class LanguageModelSession {
         var lastError: LanguageModelError = .emptyResponse
         for responder in responders {
             do throws(LanguageModelError) {
+                log("Sending the first prompt to \(name(of: responder)).")
                 let reply = try await responder.response(to: prompt)
                 conversationResponder = responder
+                log("Pinned the conversation to \(name(of: responder)).")
                 return reply
             } catch .cancelled {
                 throw .cancelled
             } catch {
+                log(
+                    "\(name(of: responder)) failed: \(error.localizedDescription)",
+                    level: .error,
+                    error: error
+                )
+
                 lastError = error
             }
         }
@@ -216,9 +233,6 @@ public final class LanguageModelSession {
         throw lastError
     }
 
-    /// The unit of work throws only `LanguageModelError`, which the
-    /// task erases; a cancellation that followed the expiration of the
-    /// background task's time is reported as an interruption.
     private func languageModelError(from error: any Error) -> LanguageModelError {
         switch error {
         case LanguageModelError.cancelled where hasBackgroundTimeExpired: .interrupted
@@ -228,9 +242,35 @@ public final class LanguageModelSession {
         }
     }
 
+    /// The unit of work throws only `LanguageModelError`, which the
+    /// task erases; a cancellation that followed the expiration of the
+    /// background task's time is reported as an interruption.
+    private func log(
+        _ message: String,
+        level: LanguageModelLogEntry.Level = .info,
+        error: LanguageModelError? = nil,
+        fileName: String = #fileID,
+        function: String = #function,
+        line: Int = #line
+    ) {
+        LoggingService.log(
+            message,
+            level: level,
+            category: Strings.sessionLoggerCategory,
+            error: error,
+            fileName: fileName,
+            function: function,
+            line: line
+        )
+    }
+
     /// The unit of work runs in a background task, whose expiration
     /// cancels it; the session then reports the interruption rather
     /// than a cancellation.
+    private func name(of responder: any LanguageModelResponding) -> String {
+        responder is GeminiProvider ? "Gemini" : "ChatGPT"
+    }
+
     private func perform<Value: Sendable>(
         _ work: @escaping @MainActor @Sendable () async throws(LanguageModelError) -> Value
     ) async throws(LanguageModelError) -> Value {
@@ -240,6 +280,11 @@ public final class LanguageModelSession {
         }
 
         let identifier = UIApplication.shared.beginBackgroundTask(withName: Strings.backgroundTaskName) { [weak self] in
+            self?.log(
+                "Background execution time expired; interrupting the call.",
+                level: .error
+            )
+
             self?.hasBackgroundTimeExpired = true
             unit.cancel()
         }
@@ -261,7 +306,18 @@ public final class LanguageModelSession {
             return value
 
         case let .failure(error):
-            throw languageModelError(from: error)
+            let error = languageModelError(from: error)
+            if case .cancelled = error {
+                log("The call was cancelled.")
+            } else {
+                log(
+                    "The call failed: \(error.localizedDescription)",
+                    level: .error,
+                    error: error
+                )
+            }
+
+            throw error
         }
     }
 
@@ -274,6 +330,11 @@ public final class LanguageModelSession {
             isRunningCall = true
             return
         }
+
+        log(
+            "Waiting for the session's current call to finish.",
+            level: .debug
+        )
 
         let id = UUID()
         let isTurnGranted = await withTaskCancellationHandler {

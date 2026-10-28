@@ -7,52 +7,59 @@
 
 /* Native */
 import Foundation
-import os
 
 extension ChatGPTWebViewHost {
     // MARK: - Constants Accessors
 
     private typealias Strings = Constants.Strings
 
-    // MARK: - Properties
-
-    #if DEBUG
-    private static let logger = Logger(
-        subsystem: Strings.loggerSubsystem,
-        category: Strings.loggerCategory
-    )
-    #endif
-
     // MARK: - Methods
 
+    func log(
+        _ message: String,
+        level: LanguageModelLogEntry.Level = .info,
+        error: LanguageModelError? = nil,
+        fileName: String = #fileID,
+        function: String = #function,
+        line: Int = #line
+    ) {
+        LoggingService.log(
+            message,
+            level: level,
+            category: Strings.loggerCategory,
+            error: error,
+            fileName: fileName,
+            function: function,
+            line: line
+        )
+    }
+
+    /// Logs a failure, with the page's state and the bridge's
+    /// diagnostics at the debug level.
     func logDiagnostics(_ reason: String) async {
-        #if DEBUG
-        // Neither the prompt nor the reply is logged.
+        log(
+            reason,
+            level: .error
+        )
+
+        guard LanguageModels.logLevel.includes(.debug) else { return }
+
         let bridgeDiagnostics = try? await evaluate(ChatGPTBridgeScripts.diagnosticsProbe) as? String
         let pageState = try? await probePageState()
-
-        let message = [
-            reason,
-            "Page state: \(pageState.map { String(describing: $0) } ?? "unavailable").",
-            "Bridge: \(bridgeDiagnostics ?? "unavailable")",
-        ].joined(separator: " ")
-
-        Self.logger.warning("\(message, privacy: .public)")
-        #endif
+        log(
+            "Page state: \(pageState.map { String(describing: $0) } ?? "unavailable"). Bridge: \(bridgeDiagnostics ?? "unavailable")",
+            level: .debug
+        )
     }
 
     func logIgnoredStream(_ message: ChatGPTBridgeMessage) {
-        #if DEBUG
         let generation = message.generation.map(String.init) ?? "none"
-        let turn = String(events.turnGeneration)
-        Self.logger.warning("Ignored a stream message of generation \(generation, privacy: .public) during turn \(turn, privacy: .public).")
-        #endif
+        log("Ignored a stream message of generation \(generation) during turn \(events.turnGeneration).")
     }
 
     /// Logs the links in a reply read from the page, so a citation
     /// chip that reaches the reply can be identified by its markup.
     func logLinks(in renderedReply: ChatGPTRenderedReply) {
-        #if DEBUG
         guard !renderedReply.linkDescriptors.isEmpty else { return }
 
         let descriptions = renderedReply.linkDescriptors.map { descriptor in
@@ -65,7 +72,23 @@ extension ChatGPTWebViewHost {
             ].joined(separator: " ")
         }
 
-        Self.logger.warning("Links in the reply read from the page: \(descriptions.joined(separator: "; "), privacy: .public)")
-        #endif
+        log(
+            "Links in the reply read from the page: \(descriptions.joined(separator: "; "))",
+            level: .debug
+        )
+    }
+
+    func logStream(_ message: ChatGPTBridgeMessage) {
+        switch message {
+        case let .completed(completion):
+            let detail = completion.isFullTextIncomplete ? ", incomplete" : ""
+            log("Stream completed for turn \(events.turnGeneration): \(completion.fullText.count) chars from \(completion.textSource)\(detail).")
+
+        case .pageState:
+            break
+
+        case .started:
+            log("Stream started for turn \(events.turnGeneration).")
+        }
     }
 }

@@ -22,6 +22,7 @@ LanguageModels supports two backends: **Gemini**, called through its API, and **
   - [GeminiConfig](#geminiconfig)
   - [GeminiModel](#geminimodel)
   - [Challenge Presentation](#challenge-presentation)
+  - [Logging](#logging)
 - [Errors](#errors)
 - [Concurrency](#concurrency)
 
@@ -38,6 +39,9 @@ LanguageModels supports two backends: **Gemini**, called through its API, and **
 | [`GeminiModel`](Sources/Modules/Gemini/Models/Public/GeminiModel.swift) | The Gemini model that answers the prompt. |
 | [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) | Supplies the Gemini API key. |
 | [`LanguageModels`](Sources/LanguageModels.swift) | The configuration entry point; register the Gemini API key delegate here. |
+| [`LanguageModelLogDelegate`](Sources/Modules/Common/Protocols/Public/LanguageModelLogDelegate.swift) | Receives the entries LanguageModels logs. |
+| [`LanguageModelLogEntry`](Sources/Modules/Common/Models/LanguageModelLogEntry.swift) | A logged message, with its level, category, and source location. |
+| [`LanguageModelLogLevel`](Sources/Modules/Common/Models/LanguageModelLogLevel.swift) | The amount of detail LanguageModels logs. |
 
 ---
 
@@ -191,6 +195,39 @@ LanguageModels.presentsChallenges = true
 
 The default is `false`. The challenge covers your app's interface while it is shown, and the call that triggered it waits until the challenge clears, the close button is tapped, or two minutes pass. Presenting requires a key window; without one, the call throws `challengeRequired`. Tapping the close button also throws it.
 
+### Logging
+
+Set `LanguageModels.logLevel` to choose how much LanguageModels logs. Each level includes the levels below it:
+
+| Level | Logs |
+| --- | --- |
+| `off` | Nothing. The default. |
+| `errors` | Failures: errors a session throws, navigation failures, and interruptions. |
+| `info` | Lifecycle events as well: calls, provider choice, page loads, submissions, streams, and conversation changes. |
+| `debug` | Everything, including the text of every prompt and reply, and the page diagnostics that accompany a failure. |
+
+Entries go to the unified logging system under the `LanguageModels` subsystem, with the category `ChatGPT`, `Gemini`, or `Session`. To route them through your own logging instead, conform a type to [`LanguageModelLogDelegate`](Sources/Modules/Common/Protocols/Public/LanguageModelLogDelegate.swift) and register it. Each [`LanguageModelLogEntry`](Sources/Modules/Common/Models/LanguageModelLogEntry.swift) carries its level, category, message, the error it reports, if any, and the file, function, and line it was logged from:
+
+```swift
+struct LogForwarder: LanguageModelLogDelegate {
+    func log(_ entry: LanguageModelLogEntry) {
+        Logger.log(
+            entry.message,
+            domain: .init("languageModels"),
+            sender: self,
+            fileName: entry.fileName,
+            function: entry.function,
+            line: entry.line
+        )
+    }
+}
+
+LanguageModels.registerLogDelegate(LogForwarder())
+LanguageModels.logLevel = .info
+```
+
+Entries arrive on the main actor, as they are logged, and only for the levels `LanguageModels.logLevel` includes.
+
 ---
 
 ## Errors
@@ -215,7 +252,7 @@ The default is `false`. The challenge covers your app's interface while it is sh
 
 On the first turn of a session created with `LanguageModelSession()`, an error is thrown only if *every* provider fails; the error reflects the last provider tried. On later turns, the error comes from the conversation's provider. If the task that called the method is cancelled, the call throws `cancelled` without trying another provider. A call that is cancelled while waiting its turn throws `cancelled` before it runs.
 
-In debug builds, the ChatGPT provider logs diagnostic details through the unified logging system – subsystem `LanguageModels`, category `ChatGPT` – whenever a prompt fails to send or the reply can't be read. The details describe ChatGPT's state and its recent responses; they never include the prompt or the reply.
+With logging enabled (see [Logging](#logging)), every failure is logged at the `errors` level, and the `debug` level adds the ChatGPT state and recent responses behind it.
 
 ---
 

@@ -7,7 +7,6 @@
 
 /* Native */
 import Foundation
-import os
 
 /// Loads the injected scripts from the package's `JavaScript` resource
 /// directory, once each, composing them and substituting their
@@ -29,13 +28,6 @@ enum ChatGPTScriptResources {
         "bridgeMessageHandlerName": Strings.bridgeMessageHandlerName,
         "pageStatePushIntervalMilliseconds": String(Ints.pageStatePushIntervalMilliseconds),
     ]
-
-    #if DEBUG
-    private static let logger = Logger(
-        subsystem: Strings.loggerSubsystem,
-        category: Strings.loggerCategory
-    )
-    #endif
 
     private static var cache = [String: String]()
 
@@ -108,9 +100,11 @@ enum ChatGPTScriptResources {
 
     private static func reportMissingResource(named name: String) {
         assertionFailure("The script resource \(name) is missing or unreadable.")
-        #if DEBUG
-        logger.error("The script resource \(name, privacy: .public) is missing or unreadable.")
-        #endif
+        LoggingService.log(
+            "The script resource \(name) is missing or unreadable.",
+            level: .error,
+            category: Strings.loggerCategory
+        )
     }
 
     private static func substitutingPlaceholders(in source: String) -> String {

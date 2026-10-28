@@ -7,7 +7,6 @@
 
 /* Native */
 import ObjectiveC
-import os
 import UIKit
 
 @preconcurrency import WebKit
@@ -28,14 +27,6 @@ final class StaticWebView: WKWebView {
     // MARK: - Properties
 
     private static let contentViewClassNamePrefix = "WKContentView"
-
-    #if DEBUG
-    private static let logger = Logger(
-        subsystem: Strings.loggerSubsystem,
-        category: Strings.loggerCategory
-    )
-    #endif
-
     private static let refusingClassNamePrefix = "LanguageModels_NonFirstResponder_"
 
     private var hasRefusedContentViewFirstResponder = false
@@ -73,9 +64,11 @@ final class StaticWebView: WKWebView {
     // MARK: - Auxiliary
 
     private func logMissingContentView() {
-        #if DEBUG
-        Self.logger.warning("No \(Self.contentViewClassNamePrefix, privacy: .public) content view was found; its first responder status was not refused.")
-        #endif
+        LoggingService.log(
+            "No \(Self.contentViewClassNamePrefix) content view was found; its first responder status was not refused.",
+            level: .error,
+            category: Strings.loggerCategory
+        )
     }
 
     private func refuseContentViewFirstResponder() {

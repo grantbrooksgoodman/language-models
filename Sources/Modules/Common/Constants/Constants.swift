@@ -25,7 +25,7 @@ enum Constants {
         static let responseTimeoutSeconds: CGFloat = 90
         static let sessionReadyTimeoutSeconds: CGFloat = 30
         static let streamStartTimeoutSeconds: CGFloat = 15
-        static let streamSettleIntervalSeconds: CGFloat = 1
+        static let streamSettleIntervalSeconds: CGFloat = 0.5
         static let submissionConfirmationTimeoutSeconds: CGFloat = 3
     }
 
@@ -70,8 +70,10 @@ enum Constants {
         /// the model name.
         static let geminiEndpointPrefix = "https://generativelanguage.googleapis.com/v1beta/models/"
 
+        static let geminiLoggerCategory = "Gemini"
         static let loggerCategory = "ChatGPT"
         static let loggerSubsystem = "LanguageModels"
+        static let sessionLoggerCategory = "Session"
 
         /// The error domain of WebKit's legacy navigation errors.
         static let webKitErrorDomain = "WebKitErrorDomain"

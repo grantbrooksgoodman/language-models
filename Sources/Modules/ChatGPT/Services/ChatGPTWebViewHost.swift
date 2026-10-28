@@ -87,6 +87,11 @@ final class ChatGPTWebViewHost: NSObject {
     }
 
     func clearConversation() {
+        log(
+            "Cleared the conversation state.",
+            level: .debug
+        )
+
         anchorMessageID = nil
         conversationID = nil
         conversationURL = nil
@@ -104,12 +109,22 @@ final class ChatGPTWebViewHost: NSObject {
         arguments: [String: Any] = [:]
     ) async throws(LanguageModelError) -> Any? {
         guard let source = ChatGPTScriptResources.source(for: script) else {
+            log(
+                "The script resource \(script.name) is missing.",
+                level: .error
+            )
+
             throw .javaScriptEvaluationFailed("The script resource \(script.name) is missing.")
         }
 
         // A turn in flight never gets a replacement web view; it is
         // interrupted instead.
         guard let webView = isTurnInFlight ? webView : ensureWebView() else {
+            log(
+                "The turn was interrupted: its web view is gone.",
+                level: .error
+            )
+
             throw .interrupted
         }
 
@@ -132,6 +147,7 @@ final class ChatGPTWebViewHost: NSObject {
     func load(_ url: URL = ChatGPTWebViewHost.baseURL) {
         let webView = ensureWebView()
         guard webView.url != url else { return }
+        log("Loading \(url.absoluteString).")
         lastNavigationError = nil
         webView.load(.init(url: url))
     }
@@ -190,6 +206,11 @@ final class ChatGPTWebViewHost: NSObject {
             conversationID = urlConversationID
             conversationURL = currentURL
         }
+
+        log(
+            "Recorded conversation \(conversationID ?? "without an ID") with anchor \(anchorMessageID ?? "none").",
+            level: .debug
+        )
     }
 
     func reload() {
@@ -198,6 +219,7 @@ final class ChatGPTWebViewHost: NSObject {
             return load()
         }
 
+        log("Reloading the page.")
         lastNavigationError = nil
         webView.reload()
     }
@@ -313,6 +335,11 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
         _ webView: WKWebView,
         didStartProvisionalNavigation navigation: WKNavigation!
     ) {
+        log(
+            "Navigation started.",
+            level: .debug
+        )
+
         lastNavigationError = nil
         events.notify()
     }
@@ -323,6 +350,7 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
         _ webView: WKWebView,
         didFinish navigation: WKNavigation!
     ) {
+        log("Navigation finished at \(webView.url?.absoluteString ?? "no URL").")
         lastNavigationError = nil
         events.notify()
     }
@@ -335,6 +363,11 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
         withError error: any Error
     ) {
         guard !isNavigationCancellation(error) else { return }
+        log(
+            "Navigation failed: \(error.localizedDescription)",
+            level: .error
+        )
+
         lastNavigationError = error
         events.notify()
     }
@@ -347,6 +380,11 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
         withError error: any Error
     ) {
         guard !isNavigationCancellation(error) else { return }
+        log(
+            "Navigation failed before it committed: \(error.localizedDescription)",
+            level: .error
+        )
+
         lastNavigationError = error
         events.notify()
     }
@@ -354,6 +392,11 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
     // MARK: - Web Content Process Did Terminate
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        log(
+            "The web content process terminated\(isTurnInFlight ? " during a turn" : "").",
+            level: .error
+        )
+
         teardownWebView()
         if isConversationActive {
             isPageStateLost = true
@@ -383,5 +426,7 @@ extension ChatGPTWebViewHost: WKScriptMessageHandler {
         guard events.receive(bridgeMessage) else {
             return logIgnoredStream(bridgeMessage)
         }
+
+        logStream(bridgeMessage)
     }
 }

@@ -35,12 +35,20 @@ extension ChatGPTWebViewHost {
             deadline: Date.now.addingTimeInterval(Double(Floats.challengeAutoResolutionTimeoutSeconds))
         )
 
-        guard !hasCleared else { return }
+        guard !hasCleared else {
+            return log("The challenge cleared on its own.")
+        }
 
         guard LanguageModels.presentsChallenges else {
+            log(
+                "The challenge did not clear, and presenting is off.",
+                level: .error
+            )
+
             throw .challengeRequired
         }
 
+        log("Presenting the challenge.")
         try await presentChallenge()
     }
 
@@ -61,6 +69,11 @@ extension ChatGPTWebViewHost {
     func throwIfOffline() throws(LanguageModelError) {
         guard let error = lastNavigationError as? URLError,
               [.dataNotAllowed, .internationalRoamingOff, .notConnectedToInternet].contains(error.code) else { return }
+
+        log(
+            "The device is offline: \(error.localizedDescription)",
+            level: .error
+        )
 
         throw .requestFailed(error.localizedDescription)
     }
@@ -122,8 +135,15 @@ private extension ChatGPTWebViewHost {
 
         guard hasCleared,
               !closeButton.isSelected else {
+            log(
+                closeButton.isSelected ? "The challenge was closed by the user." : "The challenge was not solved in time.",
+                level: .error
+            )
+
             throw .challengeRequired
         }
+
+        log("The challenge was solved.")
     }
 
     func revealWebView(
