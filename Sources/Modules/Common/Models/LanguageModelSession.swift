@@ -81,7 +81,10 @@ public final class LanguageModelSession {
     /// - Returns: The model's reply.
     ///
     /// - Throws: ``LanguageModelError`` if the prompt is invalid or no
-    ///   provider can produce a reply.
+    ///   provider can produce a reply. If the task that called the
+    ///   method is cancelled, the call throws
+    ///   ``LanguageModelError/cancelled`` without trying another
+    ///   provider.
     public func response(
         to prompt: String
     ) async throws(LanguageModelError) -> String {
@@ -94,6 +97,8 @@ public final class LanguageModelSession {
         for responder in responders {
             do throws(LanguageModelError) {
                 return try await responder.response(to: trimmed)
+            } catch .cancelled {
+                throw .cancelled
             } catch {
                 lastError = error
             }

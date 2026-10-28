@@ -49,7 +49,7 @@ extension ChatGPTWebViewHost {
                 nextReloadDate = Date().addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
             }
 
-            try? await Task.sleep(for: .seconds(Double(Floats.readinessPollIntervalSeconds)))
+            try await sleep(for: Floats.readinessPollIntervalSeconds)
         }
 
         throw .sessionNotReady
@@ -66,7 +66,7 @@ extension ChatGPTWebViewHost {
                 return
             }
 
-            try? await Task.sleep(for: .seconds(Double(Floats.readinessPollIntervalSeconds)))
+            try await sleep(for: Floats.readinessPollIntervalSeconds)
         }
 
         throw .sessionNotReady
@@ -76,34 +76,26 @@ extension ChatGPTWebViewHost {
     /// the assistant reply. The stream state is reset *before* submitting
     /// so no stream message is missed. If the prompt is still in the
     /// composer once the confirmation window elapses, it is submitted
-    /// once more.
+    /// once more. A submission the page rejects is retried until the
+    /// readiness window elapses. If the task is cancelled once the
+    /// prompt has been submitted, the page's turn is stopped before the
+    /// call throws.
     func respondViaComposer(_ prompt: String) async throws(LanguageModelError) -> String {
         try await prepareForSubmission()
 
         let transcript = await probeTranscript()
         resetStreamState()
-        try await submitComposer(prompt)
+        try await submitComposerWhenReady(prompt)
 
-        guard await isPromptUnsent(
-            prompt,
-            since: transcript
-        ) else {
-            return try await reply(since: transcript)
+        do throws(LanguageModelError) {
+            return try await replyAfterSubmission(
+                of: prompt,
+                since: transcript
+            )
+        } catch .cancelled {
+            await stopStreaming()
+            throw .cancelled
         }
-
-        await logDiagnostics("The page left the prompt unsent; submitting it again.")
-        try await prepareForSubmission()
-        try await submitComposer(prompt)
-
-        guard await isPromptUnsent(
-            prompt,
-            since: transcript
-        ) else {
-            return try await reply(since: transcript)
-        }
-
-        await logDiagnostics("The prompt was not sent.")
-        throw .submissionFailed("The prompt was not sent.")
     }
 }
 
@@ -121,7 +113,7 @@ private extension ChatGPTWebViewHost {
     func isPromptUnsent(
         _ prompt: String,
         since baseline: ChatGPTTranscriptState?
-    ) async -> Bool {
+    ) async throws(LanguageModelError) -> Bool {
         let deadline = Date().addingTimeInterval(Double(Floats.submissionConfirmationTimeoutSeconds))
         var transcript: ChatGPTTranscriptState?
 
@@ -134,7 +126,7 @@ private extension ChatGPTWebViewHost {
                 return false
             }
 
-            try? await Task.sleep(for: .seconds(Double(Floats.turnPollIntervalSeconds)))
+            try await sleep(for: Floats.turnPollIntervalSeconds)
         } while Date() < deadline
 
         // No signal confirmed the send. The prompt is unsent only if the
@@ -150,6 +142,35 @@ private extension ChatGPTWebViewHost {
         return (object["ok"] as? Bool) == true
     }
 
+    func replyAfterSubmission(
+        of prompt: String,
+        since transcript: ChatGPTTranscriptState?
+    ) async throws(LanguageModelError) -> String {
+        guard try await isPromptUnsent(
+            prompt,
+            since: transcript
+        ) else {
+            return try await reply(since: transcript)
+        }
+
+        await logDiagnostics("The page left the prompt unsent; submitting it again.")
+        try await submitComposerWhenReady(prompt)
+
+        guard try await isPromptUnsent(
+            prompt,
+            since: transcript
+        ) else {
+            return try await reply(since: transcript)
+        }
+
+        await logDiagnostics("The prompt was not sent.")
+        throw .submissionFailed("The prompt was not sent.")
+    }
+
+    func stopStreaming() async {
+        _ = try? await evaluate(ChatGPTSubmissionScripts.stopStreaming)
+    }
+
     func submitComposer(_ prompt: String) async throws(LanguageModelError) {
         let insertResult = try await evaluate(
             ChatGPTSubmissionScripts.insertPrompt,
@@ -157,16 +178,33 @@ private extension ChatGPTWebViewHost {
         )
 
         guard isOK(insertResult) else {
-            let reason = "composer insertion failed: \(describe(insertResult))"
-            await logDiagnostics(reason)
-            throw .submissionFailed(reason)
+            throw .submissionFailed("composer insertion failed: \(describe(insertResult))")
         }
 
         let sendResult = try await evaluate(ChatGPTSubmissionScripts.sendPrompt)
         guard isOK(sendResult) else {
-            let reason = "composer send failed: \(describe(sendResult))"
-            await logDiagnostics(reason)
-            throw .submissionFailed(reason)
+            throw .submissionFailed("composer send failed: \(describe(sendResult))")
+        }
+    }
+
+    func submitComposerWhenReady(_ prompt: String) async throws(LanguageModelError) {
+        // The page serves its composer before it can accept input, so
+        // a submission it rejects is retried, once readiness is
+        // confirmed again, until the readiness window elapses.
+        let deadline = Date().addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
+
+        while true {
+            do throws(LanguageModelError) {
+                return try await submitComposer(prompt)
+            } catch let .submissionFailed(reason) {
+                guard Date() < deadline else {
+                    await logDiagnostics(reason)
+                    throw .submissionFailed(reason)
+                }
+            }
+
+            try await sleep(for: Floats.readinessPollIntervalSeconds)
+            try await prepareForSubmission()
         }
     }
 }

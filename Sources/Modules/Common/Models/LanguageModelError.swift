@@ -28,9 +28,15 @@ import Foundation
 public enum LanguageModelError: LocalizedError {
     // MARK: - Cases
 
+    /// The task that called the method was cancelled.
+    case cancelled
+
     /// A human-verification challenge must be resolved before the
     /// request can proceed.
     case challengeRequired
+
+    /// The provider can no longer continue the current conversation.
+    case conversationLost
 
     /// The model returned an empty reply, or no reply arrived in time.
     case emptyResponse
@@ -74,8 +80,14 @@ public enum LanguageModelError: LocalizedError {
     /// A localized, human-readable description of the error.
     public var errorDescription: String? {
         switch self {
+        case .cancelled:
+            "The request was cancelled."
+
         case .challengeRequired:
             "A verification challenge must be resolved."
+
+        case .conversationLost:
+            "The conversation can no longer be continued."
 
         case .emptyResponse:
             "The response was empty."

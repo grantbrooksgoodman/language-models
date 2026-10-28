@@ -86,7 +86,7 @@ private extension ChatGPTWebViewHost {
                 break
             }
 
-            try? await Task.sleep(for: .seconds(Double(Floats.turnPollIntervalSeconds)))
+            try await sleep(for: Floats.turnPollIntervalSeconds)
         }
 
         await logDiagnostics("The reply did not complete in time.")
@@ -96,7 +96,7 @@ private extension ChatGPTWebViewHost {
     func completedRenderedText(
         messageID: String?,
         since transcript: ChatGPTTranscriptState?
-    ) async -> String? {
+    ) async throws(LanguageModelError) -> String? {
         let deadline = Date().addingTimeInterval(Double(Floats.renderedReplyTimeoutSeconds))
 
         repeat {
@@ -110,7 +110,7 @@ private extension ChatGPTWebViewHost {
                 return renderedReply.text
             }
 
-            try? await Task.sleep(for: .seconds(Double(Floats.turnPollIntervalSeconds)))
+            try await sleep(for: Floats.turnPollIntervalSeconds)
         } while Date() < deadline
 
         return nil
@@ -149,7 +149,7 @@ private extension ChatGPTWebViewHost {
                 continue
             }
 
-            if let text = await replyText(
+            if let text = try await replyText(
                 from: completion,
                 since: transcript
             ),
@@ -172,8 +172,8 @@ private extension ChatGPTWebViewHost {
     func replyText(
         from completion: ChatGPTStreamCompletion,
         since transcript: ChatGPTTranscriptState?
-    ) async -> String? {
-        guard let text = await unsanitizedReplyText(
+    ) async throws(LanguageModelError) -> String? {
+        guard let text = try await unsanitizedReplyText(
             from: completion,
             since: transcript
         )?.strippingCitationLabels(completion.citationLabels),
@@ -185,12 +185,12 @@ private extension ChatGPTWebViewHost {
     func unsanitizedReplyText(
         from completion: ChatGPTStreamCompletion,
         since transcript: ChatGPTTranscriptState?
-    ) async -> String? {
+    ) async throws(LanguageModelError) -> String? {
         guard completion.fullText.isEmpty || completion.isFullTextIncomplete else {
             return completion.fullText
         }
 
-        if let renderedText = await completedRenderedText(
+        if let renderedText = try await completedRenderedText(
             messageID: completion.messageID,
             since: transcript
         ) {

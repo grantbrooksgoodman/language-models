@@ -188,7 +188,9 @@ The `systemMessage`, when provided, steers the model's response and is sent alon
 
 | Case | Description |
 | --- | --- |
+| `cancelled` | The task that called the method was cancelled. |
 | `challengeRequired` | A human-verification challenge must be resolved before ChatGPT can respond. |
+| `conversationLost` | The provider can no longer continue the current conversation. |
 | `emptyResponse` | The model returned an empty reply, or no reply arrived in time. |
 | `invalidPrompt` | The prompt was empty after trimming whitespace. |
 | `javaScriptEvaluationFailed` | Evaluating JavaScript in the ChatGPT web view failed. |
@@ -198,7 +200,7 @@ The `systemMessage`, when provided, steers the model's response and is sent alon
 | `sessionNotReady` | The ChatGPT session did not become ready in time. |
 | `submissionFailed` | The prompt could not be submitted to ChatGPT. |
 
-For the default (fallback) session, an error is thrown only if *every* provider fails; the error reflects the last provider tried.
+For the default (fallback) session, an error is thrown only if *every* provider fails; the error reflects the last provider tried. If the task that called the method is cancelled, the call throws `cancelled` without trying another provider.
 
 In debug builds, the ChatGPT provider logs diagnostic details through the unified logging system – subsystem `LanguageModels`, category `ChatGPT` – whenever a prompt fails to send or the reply can't be read from ChatGPT's conversation stream. The details describe the page's state and its recent network responses; they never include the prompt or the reply.
 

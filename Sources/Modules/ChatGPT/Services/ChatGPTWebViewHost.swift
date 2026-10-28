@@ -141,6 +141,16 @@ final class ChatGPTWebViewHost: NSObject {
         openStreamCount = 0
         streamCompletions = []
     }
+
+    func sleep(
+        for seconds: CGFloat
+    ) async throws(LanguageModelError) {
+        do {
+            try await Task.sleep(for: .seconds(Double(seconds)))
+        } catch {
+            throw .cancelled
+        }
+    }
 }
 
 private extension ChatGPTWebViewHost {

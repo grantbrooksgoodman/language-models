@@ -29,6 +29,10 @@ struct GeminiProvider: LanguageModelResponding {
     func prewarm() {}
 
     func response(to prompt: String) async throws(LanguageModelError) -> String {
+        guard !Task.isCancelled else {
+            throw .cancelled
+        }
+
         guard let apiKey = LanguageModels.geminiAPIKeyDelegate?.apiKey else {
             throw .missingAPIKey
         }
@@ -42,6 +46,10 @@ struct GeminiProvider: LanguageModelResponding {
         let urlResponse: URLResponse
         do {
             (data, urlResponse) = try await URLSession.shared.data(for: urlRequest)
+        } catch is CancellationError {
+            throw .cancelled
+        } catch let error as URLError where error.code == .cancelled {
+            throw .cancelled
         } catch {
             throw .requestFailed(error.localizedDescription)
         }
