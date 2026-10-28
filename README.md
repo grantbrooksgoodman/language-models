@@ -195,14 +195,15 @@ The default is `false`. The challenge covers your app's interface while it is sh
 
 ## Errors
 
-`response(to:)` and `startNewConversation()` throw [`LanguageModelError`](Sources/Modules/Common/Models/LanguageModelError.swift), which conforms to `LocalizedError` and provides a human-readable description for each case:
+`response(to:)`, `startNewConversation()`, and `LanguageModels.responses(to:using:)` throw [`LanguageModelError`](Sources/Modules/Common/Models/LanguageModelError.swift), which conforms to `LocalizedError` and provides a human-readable description for each case:
 
 | Case | Description |
 | --- | --- |
 | `cancelled` | The task that called the method was cancelled. |
 | `challengeRequired` | A human-verification challenge must be resolved before ChatGPT can respond. Set `LanguageModels.presentsChallenges` to `true` to show the challenge so you can solve it. |
 | `conversationLost` | The provider can no longer continue the current conversation. ChatGPT throws this error when its conversation is lost and cannot be restored. The next turn starts a fresh conversation. |
-| `emptyResponse` | The model returned an empty reply, or no reply arrived in time. |
+| `emptyResponse` | The model returned an empty reply. |
+| `interrupted` | The reply was interrupted before it finished. The app's background execution time expired, or ChatGPT's session was terminated during the turn. |
 | `invalidPrompt` | The prompt was empty after trimming whitespace. |
 | `javaScriptEvaluationFailed` | A step of the ChatGPT request could not run. |
 | `missingAPIKey` | No Gemini API key has been registered. |
@@ -210,6 +211,7 @@ The default is `false`. The challenge covers your app's interface while it is sh
 | `requestFailed` | The network request failed. For ChatGPT, it could not be reached – for example, because the device is offline. |
 | `sessionNotReady` | The ChatGPT session did not become ready in time. |
 | `submissionFailed` | The prompt could not be submitted to ChatGPT. |
+| `timedOut` | A deadline passed while waiting for a reply. |
 
 On the first turn of a session created with `LanguageModelSession()`, an error is thrown only if *every* provider fails; the error reflects the last provider tried. On later turns, the error comes from the conversation's provider. If the task that called the method is cancelled, the call throws `cancelled` without trying another provider. A call that is cancelled while waiting its turn throws `cancelled` before it runs.
 
@@ -222,9 +224,10 @@ In debug builds, the ChatGPT provider logs diagnostic details through the unifie
 LanguageModels adopts Swift 6 strict concurrency.
 
 - [`LanguageModelSession`](Sources/Modules/Common/Models/LanguageModelSession.swift) is main-actor isolated. Create it and call its methods from the main actor. Its work runs asynchronously, so it does not block the main thread.
+- The session requests background execution time while a reply is in progress, and throws `interrupted` if that time expires.
 - A session's calls run one at a time, in the order they were made. A call that is cancelled while waiting its turn throws `cancelled` before it runs. `prewarm()` runs at once rather than waiting for the calls before it.
 - Sessions are independent and may run concurrently. A session that has used ChatGPT holds the resources ChatGPT needs until the session is released.
-- `LanguageModels.responses(to:using:)` answers each prompt in its own session, up to ten at a time, or two at a time with `.chatGPT`, because ChatGPT-backed sessions are resource-intensive.
+- `LanguageModels.responses(to:using:)` answers each prompt in its own session, up to ten at a time, or two at a time with `.chatGPT`, because ChatGPT-backed sessions are resource-intensive. Duplicate prompts – within a batch or across concurrent calls – share a single in-flight request, and collapse to one entry in the returned dictionary. If any prompt fails, the whole batch fails, and its other prompts are cancelled. If the task that called the method is cancelled, the call throws `cancelled`, and each in-flight request that no other call is waiting on stops. Cancelling a call does not cancel a request that another concurrent call is still waiting on. That request continues for the other call.
 - [`LanguageModelProvider`](Sources/Modules/Common/Models/LanguageModelProvider.swift), [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift), and [`GeminiModel`](Sources/Modules/Gemini/Models/Public/GeminiModel.swift) are `Sendable` values.
 - [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) conforming types must be `Sendable`. Register the delegate from the main actor.
 

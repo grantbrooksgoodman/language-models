@@ -1,0 +1,89 @@
+{
+  "placeholders": [
+    "bridgeMessageHandlerName",
+    "pageStatePushIntervalMilliseconds"
+  ],
+  "compositions": {
+    "fetchInterceptor": [
+      "bridgePrelude",
+      "unescaper",
+      "conversationSourceReader",
+      "partialHTMLReader",
+      "pageState",
+      "pageStatePusher",
+      "fetchInterceptor"
+    ],
+    "pageStateProbe": [
+      "pageState",
+      "pageStateProbe"
+    ]
+  },
+  "scripts": {
+    "denyPermissions": {
+      "kind": "documentStart"
+    },
+    "fauxVisibility": {
+      "kind": "documentStart"
+    },
+    "promoteIdleCallback": {
+      "kind": "documentStart"
+    },
+    "fetchInterceptor": {
+      "kind": "documentStart"
+    },
+    "pageStateProbe": {
+      "kind": "functionBody",
+      "arguments": []
+    },
+    "diagnosticsProbe": {
+      "kind": "functionBody",
+      "arguments": []
+    },
+    "renderedReply": {
+      "kind": "functionBody",
+      "arguments": [
+        "baselineMessageID",
+        "hasBaseline",
+        "messageID"
+      ]
+    },
+    "transcriptProbe": {
+      "kind": "functionBody",
+      "arguments": [
+        "anchorMessageID"
+      ]
+    },
+    "insertPrompt": {
+      "kind": "functionBody",
+      "arguments": [
+        "text"
+      ]
+    },
+    "sendPrompt": {
+      "kind": "functionBody",
+      "arguments": [
+        "generation"
+      ]
+    },
+    "dismissGate": {
+      "kind": "functionBody",
+      "arguments": []
+    },
+    "startNewChat": {
+      "kind": "functionBody",
+      "arguments": []
+    },
+    "stopStreaming": {
+      "kind": "functionBody",
+      "arguments": []
+    }
+  },
+  "fragments": [
+    "bridgePrelude",
+    "unescaper",
+    "conversationSourceReader",
+    "partialHTMLReader",
+    "pageState",
+    "pageStatePusher"
+  ]
+}

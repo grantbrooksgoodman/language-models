@@ -1,0 +1,19 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [
+      "www.example.com",
+      "example.com",
+      "Example Story"
+    ],
+    "fullText": "It rained. example.com",
+    "generation": null,
+    "isFullTextIncomplete": true,
+    "messageID": "m1",
+    "textSource": "fallbackMarkdown",
+    "type": "completed"
+  }
+]

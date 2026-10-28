@@ -1,0 +1,2 @@
+<template><p data-assistant-stream-block-index="1">World</p><p data-assistant-stream-block-index="0">Hello,</p></template>
+<template><div data-conversation-control="message-stream-complete"></div></template>

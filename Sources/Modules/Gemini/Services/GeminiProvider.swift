@@ -58,6 +58,8 @@ final class GeminiProvider: LanguageModelResponding {
             throw .cancelled
         } catch let error as URLError where error.code == .cancelled {
             throw .cancelled
+        } catch let error as URLError where error.code == .timedOut {
+            throw .timedOut
         } catch {
             throw .requestFailed(error.localizedDescription)
         }

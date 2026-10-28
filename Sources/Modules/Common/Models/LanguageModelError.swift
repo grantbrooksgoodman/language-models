@@ -44,8 +44,14 @@ public enum LanguageModelError: LocalizedError {
     /// cannot be restored. The next turn starts a fresh conversation.
     case conversationLost
 
-    /// The model returned an empty reply, or no reply arrived in time.
+    /// The model returned an empty reply.
     case emptyResponse
+
+    /// The reply was interrupted before it finished.
+    ///
+    /// The app's background execution time expired, or ChatGPT's
+    /// session was terminated during the turn.
+    case interrupted
 
     /// The prompt was empty after trimming whitespace.
     case invalidPrompt
@@ -79,6 +85,9 @@ public enum LanguageModelError: LocalizedError {
     /// The associated value describes why submission failed.
     case submissionFailed(String)
 
+    /// A deadline passed while waiting for a reply.
+    case timedOut
+
     // MARK: - Properties
 
     /// A localized, human-readable description of the error.
@@ -95,6 +104,9 @@ public enum LanguageModelError: LocalizedError {
 
         case .emptyResponse:
             "The response was empty."
+
+        case .interrupted:
+            "The reply was interrupted."
 
         case .invalidPrompt:
             "The prompt is empty."
@@ -116,6 +128,9 @@ public enum LanguageModelError: LocalizedError {
 
         case let .submissionFailed(reason):
             "Failed to submit the prompt: \(reason)"
+
+        case .timedOut:
+            "The reply did not arrive in time."
         }
     }
 }

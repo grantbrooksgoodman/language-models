@@ -1,0 +1,29 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [
+      "apnews.com",
+      "www.reuters.com",
+      "reuters.com",
+      "www.washingtonpost.com",
+      "washingtonpost.com",
+      "d3ahdtrm1vsak0.cloudfront.net",
+      "tomorrowsaffairs.com",
+      "www.democracynow.org",
+      "democracynow.org",
+      "www.investing.com",
+      "investing.com",
+      "www.russellrecord.com",
+      "russellrecord.com"
+    ],
+    "fullText": "Here are two major world headlines for **Tuesday, October 27, 2026**, selected from today's international reporting.\n\n## 1. Congo's Ebola outbreak surpasses 10,000 confirmed cases\n\nThe Democratic Republic of the Congo is facing a rapidly expanding Ebola outbreak, with more than 10,000 confirmed infections reported. Health authorities are racing to contain transmission as insecurity, limited medical access and difficulties tracing contacts complicate response efforts. \n\nSource: \n\n## 2. Israel's election leaves Netanyahu's political future uncertain\n\nIsrael's national election has ended without a clear majority for either political bloc, leaving the country's next government uncertain. The result could have major implications for Israeli leadership, regional security and the future of the country's ongoing conflicts. \n\nSource: \n\nThese stories stand out for their significant public-health and geopolitical implications, though this is a brief selection rather than a definitive ranking of all today's world news.",
+    "generation": null,
+    "isFullTextIncomplete": true,
+    "messageID": "893b3e3b-7faa-47a5-8207-76d567081c1f",
+    "textSource": "fallbackMarkdown",
+    "type": "completed"
+  }
+]

@@ -1,0 +1,15 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [],
+    "fullText": "Weather varies from day to day, ranging from sunny and warm to cold, rainy, windy, or snowy depending on the location and season.",
+    "generation": null,
+    "isFullTextIncomplete": false,
+    "messageID": "db4106de-975c-4765-a4bd-7d7057b6334e",
+    "textSource": "fallbackMarkdown",
+    "type": "completed"
+  }
+]

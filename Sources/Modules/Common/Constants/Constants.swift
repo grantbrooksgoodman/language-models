@@ -16,10 +16,10 @@ enum Constants {
         static let challengeCloseButtonInset: CGFloat = 16
         static let challengePresentationTimeoutSeconds: CGFloat = 120
         static let conversationVerificationTimeoutSeconds: CGFloat = 5
+        static let fallbackRefreshIntervalSeconds: CGFloat = 2
         static let followUpStreamTimeoutSeconds: CGFloat = 10
         static let geminiRequestTimeoutSeconds: CGFloat = 60
         static let inFlightResponseTimeoutSeconds: CGFloat = 300
-        static let readinessPollIntervalSeconds: CGFloat = 0.5
         static let readinessReloadIntervalSeconds: CGFloat = 10
         static let renderedReplyTimeoutSeconds: CGFloat = 5
         static let responseTimeoutSeconds: CGFloat = 90
@@ -27,7 +27,6 @@ enum Constants {
         static let streamStartTimeoutSeconds: CGFloat = 15
         static let streamSettleIntervalSeconds: CGFloat = 1
         static let submissionConfirmationTimeoutSeconds: CGFloat = 3
-        static let turnPollIntervalSeconds: CGFloat = 0.25
     }
 
     // MARK: - Int
@@ -39,11 +38,15 @@ enum Constants {
 
         static let maxConcurrentChatGPTOperations = 2
         static let maxConcurrentGeminiOperations = 10
+        static let pageStatePushIntervalMilliseconds = 100
     }
 
     // MARK: - String
 
     enum Strings {
+        /// The name of the background task a session runs its calls in.
+        static let backgroundTaskName = "LanguageModelSession"
+
         /// The base ChatGPT URL.
         static let baseURLString = "https://chatgpt.com/"
 

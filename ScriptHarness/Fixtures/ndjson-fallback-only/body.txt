@@ -1,0 +1,2 @@
+{"type": "content", "messageId": "m1", "dil": {"fallbackMarkdown": "It costs 5 \\* 2 &amp; more\\.\n\n```\nlet x = \\* 1\n```"}}
+{"type": "end"}

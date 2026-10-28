@@ -1,0 +1,4 @@
+{"type": "content", "messageId": "m1", "markdown": "First message."}
+{"type": "content", "messageId": "m2", "markdown": "Second message."}
+{"type": "content", "messageId": "m2", "mode": "append", "markdown": " More."}
+{"type": "end"}

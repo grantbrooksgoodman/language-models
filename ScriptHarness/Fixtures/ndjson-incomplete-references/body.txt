@@ -1,0 +1,2 @@
+{"type": "content", "messageId": "m1", "dil": {"fallbackMarkdown": "It rained\\. example.com"}, "references": [{"url": "https://www.example.com/story", "title": "Example Story", "id": "ref-1", "matched_text": "It rained"}]}
+{"type": "end"}

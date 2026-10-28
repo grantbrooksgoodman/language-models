@@ -1,0 +1,3 @@
+<template><?start name="assistant-committed-block-0"><p>Done – ☕</p><?end></template>
+<template><div data-conversation-control="message-stream-complete"></div></template>
+<template><?start name="assistant-committed-block-1"><p>After the marker</p><?end></template>

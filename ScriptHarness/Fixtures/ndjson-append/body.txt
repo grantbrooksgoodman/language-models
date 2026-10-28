@@ -1,0 +1,3 @@
+{"type": "content", "messageId": "m1", "markdown": "Hello, "}
+{"type": "content", "messageId": "m1", "mode": "append", "markdown": "world."}
+{"type": "end"}

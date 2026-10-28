@@ -12,13 +12,26 @@ enum ChatGPTBridgeMessage: Decodable {
     // MARK: - Types
 
     private enum CodingKeys: String, CodingKey {
+        case generation
+        case state
         case type
     }
 
     // MARK: - Cases
 
     case completed(ChatGPTStreamCompletion)
-    case started
+    case pageState(ChatGPTPageState)
+    case started(generation: Int?)
+
+    // MARK: - Properties
+
+    var generation: Int? {
+        switch self {
+        case let .completed(completion): completion.generation
+        case .pageState: nil
+        case let .started(generation): generation
+        }
+    }
 
     // MARK: - Init
 
@@ -29,8 +42,17 @@ enum ChatGPTBridgeMessage: Decodable {
         case "completed":
             self = try .completed(.init(from: decoder))
 
+        case "pageState":
+            self = try .pageState(container.decode(
+                ChatGPTPageState.self,
+                forKey: .state
+            ))
+
         case "started":
-            self = .started
+            self = try .started(generation: container.decodeIfPresent(
+                Int.self,
+                forKey: .generation
+            ))
 
         default:
             throw DecodingError.dataCorruptedError(

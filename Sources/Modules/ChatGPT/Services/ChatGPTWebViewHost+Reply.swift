@@ -29,91 +29,43 @@ extension ChatGPTWebViewHost {
 }
 
 private extension ChatGPTWebViewHost {
-    // MARK: - Reply Helpers
+    // MARK: - Properties
 
-    func unsanitizedReply(
-        since transcript: ChatGPTTranscriptState?
-    ) async throws(LanguageModelError) -> String {
-        // A turn may span several conversation streams – one per
-        // message, with a pause between while the model works – so
-        // the reply is read once the turn has settled: every stream
-        // has completed, the page no longer shows the turn in flight,
-        // and no follow-up stream has begun. The reply is read from
-        // the streams, and from the page itself when a stream yields
-        // no text, omits part of its message, or is never recognized.
-        // This throws early once the stream-start window elapses with
-        // no stream, no reply, and no turn in flight. The response
-        // window extends while the page shows the turn in flight, up
-        // to the in-flight limit.
-        let startDate = Date()
-        let deadline = startDate.addingTimeInterval(Double(Floats.responseTimeoutSeconds))
-        let inFlightDeadline = startDate.addingTimeInterval(Double(Floats.inFlightResponseTimeoutSeconds))
-        let streamStartDeadline = startDate.addingTimeInterval(Double(Floats.streamStartTimeoutSeconds))
-
-        while Date() < inFlightDeadline {
-            if let lastStreamCompletionDate {
-                if await hasTurnSettled(since: lastStreamCompletionDate) {
-                    return try await replyText(
-                        from: streamCompletions,
-                        since: transcript
-                    )
-                }
-            } else if !hasStreamStarted {
-                let renderedReply = await probeRenderedReply(
-                    messageID: nil,
-                    since: transcript
-                )
-
-                if let renderedReply,
-                   renderedReply.isComplete,
-                   !renderedReply.text.isEmpty,
-                   await !isTurnInFlight() {
-                    await logDiagnostics("No conversation stream was recognized; the reply was read from the page.")
-                    logLinks(in: renderedReply)
-                    return renderedReply.text
-                }
-
-                if Date() >= streamStartDeadline,
-                   renderedReply?.messageID == nil,
-                   await !isTurnInFlight() {
-                    await logDiagnostics("Neither a conversation stream nor a reply appeared.")
-                    throw .emptyResponse
-                }
-            }
-
-            if Date() >= deadline,
-               await !isTurnInFlight() {
-                break
-            }
-
-            try await sleep(for: Floats.turnPollIntervalSeconds)
-        }
-
-        await logDiagnostics("The reply did not complete in time.")
-        throw .emptyResponse
+    var isPageStreaming: Bool {
+        events.pageState?.isStreaming == true
     }
+
+    // MARK: - Methods
 
     func completedRenderedText(
         messageID: String?,
         since transcript: ChatGPTTranscriptState?
     ) async throws(LanguageModelError) -> String? {
-        let deadline = Date().addingTimeInterval(Double(Floats.renderedReplyTimeoutSeconds))
+        let deadline = Date.now.addingTimeInterval(Double(Floats.renderedReplyTimeoutSeconds))
+        var probedRefreshCount = -1
 
-        repeat {
-            if let renderedReply = await probeRenderedReply(
-                messageID: messageID,
-                since: transcript
-            ),
-                renderedReply.isComplete,
-                !renderedReply.text.isEmpty {
-                logLinks(in: renderedReply)
-                return renderedReply.text
+        while true {
+            // The page is read once it shows its last reply complete,
+            // and after every fallback refresh.
+            if events.pageState?.isLastAssistantMessageComplete == true || events.refreshCount != probedRefreshCount {
+                probedRefreshCount = events.refreshCount
+                if let renderedReply = await probeRenderedReply(
+                    messageID: messageID,
+                    since: transcript
+                ),
+                    renderedReply.isComplete,
+                    !renderedReply.text.isEmpty {
+                    logLinks(in: renderedReply)
+                    return renderedReply.text
+                }
             }
 
-            try await sleep(for: Floats.turnPollIntervalSeconds)
-        } while Date() < deadline
-
-        return nil
+            let sequence = events.sequence
+            guard try await events.wait(
+                until: { [self] in events.sequence != sequence },
+                deadline: deadline
+            ) else { return nil }
+        }
     }
 
     /// Whether the turn has produced no further stream since the last
@@ -122,17 +74,57 @@ private extension ChatGPTWebViewHost {
     /// shows it so, and for no longer than the follow-up window.
     func hasTurnSettled(
         since lastStreamCompletionDate: Date
-    ) async -> Bool {
-        let elapsed = Date().timeIntervalSince(lastStreamCompletionDate)
+    ) -> Bool {
+        let elapsed = Date.now.timeIntervalSince(lastStreamCompletionDate)
         guard elapsed >= Double(Floats.streamSettleIntervalSeconds),
-              openStreamCount == 0 else { return false }
+              events.openStreamCount == 0 else { return false }
 
         guard elapsed < Double(Floats.followUpStreamTimeoutSeconds) else { return true }
-        return await !isTurnInFlight()
+        return !isPageStreaming
     }
 
-    func isTurnInFlight() async -> Bool {
-        await (try? probePageState())?.isStreaming == true
+    /// Whether the page shows a reply other than the one that was
+    /// last at the baseline, complete.
+    func isReplyShown(since transcript: ChatGPTTranscriptState?) -> Bool {
+        guard let state = events.pageState,
+              let messageID = state.lastAssistantMessageID else { return false }
+        return state.isLastAssistantMessageComplete && messageID != transcript?.lastAssistantMessageID
+    }
+
+    func nextReplyWakeDate(
+        deadline: Date,
+        inFlightDeadline: Date,
+        streamStartDeadline: Date
+    ) -> Date {
+        var candidates = [inFlightDeadline]
+        if let lastStreamCompletionDate = events.lastStreamCompletionDate {
+            candidates.append(lastStreamCompletionDate.addingTimeInterval(Double(Floats.streamSettleIntervalSeconds)))
+            candidates.append(lastStreamCompletionDate.addingTimeInterval(Double(Floats.followUpStreamTimeoutSeconds)))
+        } else if !events.hasStreamStarted {
+            candidates.append(streamStartDeadline)
+        }
+
+        candidates.append(deadline)
+        let now = Date.now
+        return candidates.filter { $0 > now }.min() ?? inFlightDeadline
+    }
+
+    func renderedReplyText(
+        since transcript: ChatGPTTranscriptState?
+    ) async throws(LanguageModelError) -> String? {
+        let renderedReply = await probeRenderedReply(
+            messageID: nil,
+            since: transcript
+        )
+
+        guard let renderedReply,
+              renderedReply.isComplete,
+              !renderedReply.text.isEmpty,
+              !isPageStreaming else { return nil }
+
+        await logDiagnostics("No conversation stream was recognized; the reply was read from the page.")
+        logLinks(in: renderedReply)
+        return renderedReply.text
     }
 
     func replyText(
@@ -186,6 +178,76 @@ private extension ChatGPTWebViewHost {
         return text.isEmpty ? nil : text
     }
 
+    func unsanitizedReply(
+        since transcript: ChatGPTTranscriptState?
+    ) async throws(LanguageModelError) -> String {
+        // A turn may span several conversation streams – one per
+        // message, with a pause between while the model works – so
+        // the reply is read once the turn has settled: every stream
+        // has completed, the page no longer shows the turn in flight,
+        // and no follow-up stream has begun. The reply is read from
+        // the streams, and from the page itself when a stream yields
+        // no text, omits part of its message, or is never recognized.
+        // This throws early once the stream-start window elapses with
+        // no stream, no reply, and no turn in flight. The response
+        // window extends while the page shows the turn in flight, up
+        // to the in-flight limit. The wait resumes on every page or
+        // stream event, and at the next deadline.
+        let startDate = Date.now
+        let deadline = startDate.addingTimeInterval(Double(Floats.responseTimeoutSeconds))
+        let inFlightDeadline = startDate.addingTimeInterval(Double(Floats.inFlightResponseTimeoutSeconds))
+        let streamStartDeadline = startDate.addingTimeInterval(Double(Floats.streamStartTimeoutSeconds))
+        var probedRefreshCount = events.refreshCount
+        var probedSequence = -1
+
+        while Date.now < inFlightDeadline {
+            if let lastStreamCompletionDate = events.lastStreamCompletionDate {
+                if hasTurnSettled(since: lastStreamCompletionDate) {
+                    return try await replyText(
+                        from: events.streamCompletions,
+                        since: transcript
+                    )
+                }
+            } else if !events.hasStreamStarted {
+                // The page is read only once it shows a complete reply,
+                // or after a fallback refresh.
+                if events.sequence != probedSequence,
+                   isReplyShown(since: transcript) || events.refreshCount != probedRefreshCount {
+                    probedRefreshCount = events.refreshCount
+                    probedSequence = events.sequence
+                    if let text = try await renderedReplyText(since: transcript) {
+                        return text
+                    }
+                }
+
+                if Date.now >= streamStartDeadline,
+                   !isReplyShown(since: transcript),
+                   !isPageStreaming {
+                    await logDiagnostics("Neither a conversation stream nor a reply appeared.")
+                    throw .timedOut
+                }
+            }
+
+            if Date.now >= deadline,
+               !isPageStreaming {
+                break
+            }
+
+            let sequence = events.sequence
+            _ = try await events.wait(
+                until: { [self] in events.sequence != sequence },
+                deadline: nextReplyWakeDate(
+                    deadline: deadline,
+                    inFlightDeadline: inFlightDeadline,
+                    streamStartDeadline: streamStartDeadline
+                )
+            )
+        }
+
+        await logDiagnostics("The reply did not complete in time.")
+        throw .timedOut
+    }
+
     func unsanitizedReplyText(
         from completion: ChatGPTStreamCompletion,
         since transcript: ChatGPTTranscriptState?
@@ -213,6 +275,29 @@ private extension ChatGPTWebViewHost {
 }
 
 private extension String {
+    // MARK: - Properties
+
+    var endsWithSentencePunctuation: Bool {
+        guard let last = trimmingTrailingWhitespace.last else { return false }
+        return ".!?)]".contains(last)
+    }
+
+    var isCodeFence: Bool {
+        let line = trimmingCharacters(in: .whitespaces)
+        return line.hasPrefix("```") || line.hasPrefix("~~~")
+    }
+
+    var trimmingTrailingWhitespace: String {
+        String(reversed().drop(while: \.isWhitespace).reversed())
+    }
+
+    // MARK: - Methods
+
+    func isLabelOnlyOrPrecededByWhitespace(before suffix: String) -> Bool {
+        guard count > suffix.count else { return true }
+        return self[index(endIndex, offsetBy: -suffix.count - 1)].isWhitespace
+    }
+
     /// Removes the run of source citations rendered at the end of any
     /// line – labels among `labels` and "+N" sources badges, each
     /// preceded by whitespace – when the run is the whole line or
@@ -231,25 +316,6 @@ private extension String {
 
             return isInCodeBlock ? line : line.strippingTrailingCitations(labels)
         }.joined(separator: "\n")
-    }
-
-    var isCodeFence: Bool {
-        let line = trimmingCharacters(in: .whitespaces)
-        return line.hasPrefix("```") || line.hasPrefix("~~~")
-    }
-
-    var endsWithSentencePunctuation: Bool {
-        guard let last = trimmingTrailingWhitespace.last else { return false }
-        return ".!?)]".contains(last)
-    }
-
-    var trimmingTrailingWhitespace: String {
-        String(reversed().drop(while: \.isWhitespace).reversed())
-    }
-
-    func isLabelOnlyOrPrecededByWhitespace(before suffix: String) -> Bool {
-        guard count > suffix.count else { return true }
-        return self[index(endIndex, offsetBy: -suffix.count - 1)].isWhitespace
     }
 
     func strippingTrailingCitations(_ labels: [String]) -> String {

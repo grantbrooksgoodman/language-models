@@ -1,0 +1,15 @@
+[
+  { "input": "It costs 5 \\* 2 \\& more\\.", "output": "It costs 5 * 2 & more." },
+  { "input": "Escaped \\[brackets\\] and \\_underscores\\_", "output": "Escaped [brackets] and _underscores_" },
+  { "input": "Tom &amp; Jerry &lt;3 &quot;quoted&quot; &apos;single&apos;", "output": "Tom & Jerry <3 \"quoted\" 'single'" },
+  { "input": "Code point &#65; and &#x42; and &#0;", "output": "Code point A and B and \uFFFD" },
+  { "input": "Unknown &bogus; stays, as does a bare &", "output": "Unknown &bogus; stays, as does a bare &" },
+  { "input": "A span `a \\* b` keeps its escape", "output": "A span `a \\* b` keeps its escape" },
+  { "input": "Double ``a ` b \\*`` span", "output": "Double ``a ` b \\*`` span" },
+  { "input": "Unclosed ` run then \\*text\\*", "output": "Unclosed ` run then *text*" },
+  { "input": "Before\\.\n```swift\nlet x = \\* 1\n```\nAfter\\.", "output": "Before.\n```swift\nlet x = \\* 1\n```\nAfter." },
+  { "input": "~~~\nkeep \\_this\\_\n~~~\nbut \\_not\\_ this", "output": "~~~\nkeep \\_this\\_\n~~~\nbut _not_ this" },
+  { "input": "````\n```\ninner \\*\n```\n````\nout \\*", "output": "````\n```\ninner \\*\n```\n````\nout *" },
+  { "input": "``` with `backtick` is not a fence \\*", "output": "``` with `backtick` is not a fence *" },
+  { "input": "Non-breaking&nbsp;space", "output": "Non-breaking\u00A0space" }
+]

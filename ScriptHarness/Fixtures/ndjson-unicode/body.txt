@@ -1,0 +1,3 @@
+{"type": "content", "messageId": "m1", "markdown": "Café ☕ – 日本語 🍐 "}
+{"type": "content", "messageId": "m1", "mode": "append", "markdown": "naïve façade."}
+{"type": "end"}

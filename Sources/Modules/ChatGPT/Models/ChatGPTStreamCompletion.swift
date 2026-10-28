@@ -24,6 +24,7 @@ struct ChatGPTStreamCompletion: Decodable, Equatable {
     /// with, in any text source.
     let citationLabels: [String]
     let fullText: String
+    let generation: Int?
     let isFullTextIncomplete: Bool
     let messageID: String?
     let textSource: TextSource

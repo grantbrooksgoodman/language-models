@@ -1,0 +1,2 @@
+{"type": "content", "messageId": "m1", "dil": {"fallbackMarkdown": "See the image\\.", "requiredComponents": ["image_group"]}}
+{"type": "end"}

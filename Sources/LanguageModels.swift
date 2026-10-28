@@ -76,16 +76,25 @@ public enum LanguageModels {
     /// Each prompt is answered independently by its own
     /// ``LanguageModelSession``, up to ten at a time, or two at a time
     /// with ``LanguageModelProvider/chatGPT``, because ChatGPT-backed
-    /// sessions are resource-intensive. Duplicate prompts – within this
+    /// sessions are resource-intensive. Duplicate prompts – within a
     /// batch or across concurrent calls – share a single in-flight
     /// request, and collapse to one entry in the returned dictionary.
-    /// If any prompt fails, the whole batch fails.
+    /// If any prompt fails, the whole batch fails, and its other
+    /// prompts are cancelled.
     ///
     /// ```swift
     /// let replies = try await LanguageModels.responses(
     ///     to: ["What is 2 + 2?", "Capital of France?"]
     /// )
     /// ```
+    ///
+    /// If the task that called the method is cancelled, the call throws
+    /// ``LanguageModelError/cancelled``, and each in-flight request that
+    /// no other call is waiting on stops.
+    ///
+    /// - Important: Cancelling a call does not cancel a request that
+    ///   another concurrent call is still waiting on. That request
+    ///   continues for the other call.
     ///
     /// - Parameters:
     ///   - prompts: The prompts to answer.
@@ -95,11 +104,13 @@ public enum LanguageModels {
     ///
     /// - Returns: A dictionary mapping each prompt to its reply.
     ///
-    /// - Throws: ``LanguageModelError`` if any prompt fails.
+    /// - Throws: ``LanguageModelError`` if any prompt fails. If the task
+    ///   that called the method is cancelled, the call throws
+    ///   ``LanguageModelError/cancelled``.
     public static func responses(
         to prompts: [String],
         using provider: LanguageModelProvider = .gemini(config: .init())
-    ) async throws -> [String: String] {
+    ) async throws(LanguageModelError) -> [String: String] {
         let prompts = Array(Set(prompts))
 
         let providerKey = switch provider {
@@ -112,43 +123,52 @@ public enum LanguageModels {
 
         var replies = [String: String]()
 
-        try await withThrowingTaskGroup(
-            of: (String, String).self
-        ) { taskGroup in
-            var nextIndex = 0
+        do {
+            try await withThrowingTaskGroup(
+                of: (String, String).self
+            ) { taskGroup in
+                var nextIndex = 0
 
-            func enqueueNextTask() {
-                guard nextIndex < prompts.count else { return }
-                let index = nextIndex
-                nextIndex += 1
+                func enqueueNextTask() {
+                    guard nextIndex < prompts.count else { return }
+                    let index = nextIndex
+                    nextIndex += 1
 
-                let prompt = prompts[index]
-                taskGroup.addTask {
-                    let reply = try await InFlightResponseCoordinator.shared.task(
-                        forKey: "\(providerKey)|\(prompt)"
-                    ) {
-                        let session = await LanguageModelSession(provider)
-                        return try await session.response(to: prompt)
-                    }.value
+                    let prompt = prompts[index]
+                    taskGroup.addTask {
+                        let reply = try await InFlightResponseCoordinator.shared.response(
+                            forKey: "\(providerKey)|\(prompt)"
+                        ) { () async throws(LanguageModelError) in
+                            let session = await LanguageModelSession(provider)
+                            return try await session.response(to: prompt)
+                        }
 
-                    return (prompt, reply)
+                        return (prompt, reply)
+                    }
+                }
+
+                let maxConcurrentOperations = min(
+                    maxConcurrentOperations(for: provider),
+                    prompts.count
+                )
+
+                for _ in 0 ..< maxConcurrentOperations {
+                    enqueueNextTask()
+                }
+
+                // As each task finishes, enqueue another until done.
+                for try await (prompt, reply) in taskGroup {
+                    replies[prompt] = reply
+                    enqueueNextTask()
                 }
             }
-
-            let maxConcurrentOperations = min(
-                maxConcurrentOperations(for: provider),
-                prompts.count
-            )
-
-            for _ in 0 ..< maxConcurrentOperations {
-                enqueueNextTask()
-            }
-
-            // As each task finishes, enqueue another until done.
-            for try await (prompt, reply) in taskGroup {
-                replies[prompt] = reply
-                enqueueNextTask()
-            }
+        } catch let error as LanguageModelError {
+            throw error
+        } catch is CancellationError {
+            throw .cancelled
+        } catch {
+            // Unreachable: every child task throws a `LanguageModelError`.
+            throw .requestFailed(error.localizedDescription)
         }
 
         return replies

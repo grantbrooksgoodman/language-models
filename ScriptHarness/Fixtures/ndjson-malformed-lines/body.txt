@@ -1,0 +1,6 @@
+not json at all
+42
+{"type": "content", "markdown": "no message id"}
+{"type": "content", "messageId": "m1", "markdown": "Kept."}
+{"type":"content","messageId":"m1"
+{"type": "end"}

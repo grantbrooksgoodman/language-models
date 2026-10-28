@@ -1,0 +1,3 @@
+{"type": "content", "messageId": "m1", "markdown": "Draft text"}
+{"type": "content", "messageId": "m1", "mode": "replace", "markdown": "Final text."}
+{"type": "end"}

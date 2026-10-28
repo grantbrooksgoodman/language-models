@@ -1,0 +1,3 @@
+<template><?start name="assistant-committed-block-0"><p>First &amp; second &lt;p&gt;</p><?end><?start name="assistant-committed-block-1"><pre><code>let x = &quot;1&quot;;</code></pre><?end></template>
+<template><p data-assistant-stream-block-index="0">pending draft</p></template>
+<template><div data-conversation-control="message-stream-complete"></div></template>

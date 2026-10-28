@@ -30,15 +30,12 @@ extension ChatGPTWebViewHost {
     /// The challenge is given time to clear on its own before it is
     /// presented for the user to solve, when presenting is enabled.
     func resolveChallenge() async throws(LanguageModelError) {
-        let deadline = Date().addingTimeInterval(Double(Floats.challengeAutoResolutionTimeoutSeconds))
+        let hasCleared = try await events.wait(
+            until: { [self] in events.pageState?.isChallengePresent == false },
+            deadline: Date.now.addingTimeInterval(Double(Floats.challengeAutoResolutionTimeoutSeconds))
+        )
 
-        while Date() < deadline {
-            try await sleep(for: Floats.readinessPollIntervalSeconds)
-            if let state = try? await probePageState(),
-               !state.isChallengePresent {
-                return
-            }
-        }
+        guard !hasCleared else { return }
 
         guard LanguageModels.presentsChallenges else {
             throw .challengeRequired
@@ -47,16 +44,18 @@ extension ChatGPTWebViewHost {
         try await presentChallenge()
     }
 
-    func shouldReload(
-        idleStartDate: Date?,
-        nextReloadDate: Date
-    ) -> Bool {
-        if lastNavigationError != nil {
-            return Date() >= nextReloadDate
-        }
+    /// Whether the page is reloaded now: it is when its navigation
+    /// failed, or when it has finished loading and sat idle – with no
+    /// change, nothing streaming, and no challenge – for the full
+    /// reload interval.
+    func shouldReload() -> Bool {
+        guard lastNavigationError == nil else { return true }
 
-        guard let idleStartDate else { return false }
-        return Date().timeIntervalSince(idleStartDate) >= Double(Floats.readinessReloadIntervalSeconds)
+        guard !isLoading,
+              events.pageState?.isStreaming != true,
+              events.pageState?.isChallengePresent != true else { return false }
+
+        return Date.now.timeIntervalSince(events.lastEventDate) >= Double(Floats.readinessReloadIntervalSeconds)
     }
 
     func throwIfOffline() throws(LanguageModelError) {
@@ -68,8 +67,6 @@ extension ChatGPTWebViewHost {
 }
 
 private extension ChatGPTWebViewHost {
-    // MARK: - Challenge Helpers
-
     func concealWebView(
         _ webView: StaticWebView,
         closeButton: UIButton
@@ -80,11 +77,13 @@ private extension ChatGPTWebViewHost {
     }
 
     func makeCloseButton() -> UIButton {
-        // The button records its tap as its selected state.
+        // The button records its tap as its selected state, and wakes
+        // the wait on it.
         let closeButton = UIButton(
             type: .close,
-            primaryAction: UIAction { action in
+            primaryAction: UIAction { [weak self] action in
                 (action.sender as? UIButton)?.isSelected = true
+                self?.events.notify()
             }
         )
 
@@ -112,19 +111,19 @@ private extension ChatGPTWebViewHost {
             )
         }
 
-        let deadline = Date().addingTimeInterval(Double(Floats.challengePresentationTimeoutSeconds))
-        while Date() < deadline,
-              !closeButton.isSelected {
-            if let state = try? await probePageState(),
-               !state.isChallengePresent,
-               state.isComposerPresent {
-                return
-            }
+        let hasCleared = try await events.wait(
+            until: { [self] in
+                guard !closeButton.isSelected,
+                      let state = events.pageState else { return closeButton.isSelected }
+                return !state.isChallengePresent && state.isComposerPresent
+            },
+            deadline: Date.now.addingTimeInterval(Double(Floats.challengePresentationTimeoutSeconds))
+        )
 
-            try await sleep(for: Floats.readinessPollIntervalSeconds)
+        guard hasCleared,
+              !closeButton.isSelected else {
+            throw .challengeRequired
         }
-
-        throw .challengeRequired
     }
 
     func revealWebView(

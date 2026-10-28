@@ -1,0 +1,15 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [],
+    "fullText": "Read more.",
+    "generation": null,
+    "isFullTextIncomplete": true,
+    "messageID": "m1",
+    "textSource": "fallbackMarkdown",
+    "type": "completed"
+  }
+]

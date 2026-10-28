@@ -1,0 +1,2 @@
+{"type": "content", "messageId": "m1", "dil": {"fallbackMarkdown": "Read more\\.", "appData": {"link": "https://example.org/more"}}}
+{"type": "end"}

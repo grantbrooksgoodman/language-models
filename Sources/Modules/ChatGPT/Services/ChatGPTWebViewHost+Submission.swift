@@ -21,81 +21,61 @@ extension ChatGPTWebViewHost {
             load()
         }
 
-        let deadline = Date().addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
-        var idleStartDate: Date?
-        var nextReloadDate = Date().addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
+        let deadline = Date.now.addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
+        var reloadDate = Date.now.addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
 
-        while Date() < deadline {
+        while true {
             try throwIfOffline()
 
-            // A transient failure to read the page state (e.g. mid-navigation)
-            // shouldn't abort readiness; keep polling until the deadline.
-            let state = try? await probePageState()
-            if let state {
+            if let state = events.pageState {
                 if state.isChallengePresent {
                     try await resolveChallenge()
-                    idleStartDate = nil
+                    reloadDate = Date.now.addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
+                    continue
+                }
+
+                if state.isComposerPresent,
+                   !state.isStreaming {
+                    // A pushed state may trail the page by the push
+                    // interval, so readiness is confirmed by a probe.
+                    guard let confirmed = try? await probePageState() else { return }
+                    events.record(pageState: confirmed)
+                    guard confirmed.isChallengePresent || confirmed.isStreaming || !confirmed.isComposerPresent else { return }
                     continue
                 }
 
                 if state.isLoggedOutModalPresent {
                     await dismissGate()
                 }
-
-                if state.isComposerPresent,
-                   !state.isStreaming {
-                    return
-                }
             }
 
-            // A page that has finished loading with nothing to show is
-            // idle; it is reloaded once it has been idle for the full
-            // interval, as is a page whose navigation failed.
-            if isLoading || state?.isStreaming == true {
-                idleStartDate = nil
-            } else if idleStartDate == nil {
-                idleStartDate = Date()
+            // The page is waited on until it needs attention or its
+            // navigation fails, or until the reload decision is due.
+            let sequence = events.sequence
+            let didChange = try await events.wait(
+                until: { [self] in
+                    events.sequence != sequence && (needsReadinessAttention(events.pageState) || lastNavigationError != nil)
+                },
+                deadline: min(
+                    deadline,
+                    reloadDate
+                )
+            )
+
+            if didChange {
+                continue
             }
 
-            if shouldReload(
-                idleStartDate: idleStartDate,
-                nextReloadDate: nextReloadDate
-            ) {
+            guard Date.now < deadline else {
+                try throwReadinessFailure()
+            }
+
+            if shouldReload() {
                 reload()
-                idleStartDate = nil
-                nextReloadDate = Date().addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
             }
 
-            try await sleep(for: Floats.readinessPollIntervalSeconds)
+            reloadDate = Date.now.addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
         }
-
-        guard let lastNavigationError else {
-            throw .sessionNotReady
-        }
-
-        throw .requestFailed(lastNavigationError.localizedDescription)
-    }
-
-    func startNewChat() async throws(LanguageModelError) {
-        clearConversation()
-        guard currentURL != nil else {
-            return resetStreamState()
-        }
-
-        _ = try? await evaluate(ChatGPTSubmissionScripts.startNewChat)
-
-        let deadline = Date().addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
-        while Date() < deadline {
-            if let state = try? await probePageState(),
-               state.isComposerPresent,
-               state.urlConversationID == nil {
-                return
-            }
-
-            try await sleep(for: Floats.readinessPollIntervalSeconds)
-        }
-
-        throw .sessionNotReady
     }
 
     /// Inserts `prompt` into the live composer and submits it, then returns
@@ -113,7 +93,8 @@ extension ChatGPTWebViewHost {
         try await prepareForTurn()
 
         let transcript = await probeTranscript()
-        resetStreamState()
+        beginTurn()
+        defer { endTurn() }
         try await submitComposerWhenReady(prompt)
 
         let reply: String
@@ -130,21 +111,76 @@ extension ChatGPTWebViewHost {
         await recordConversation()
         return reply
     }
+
+    func startNewChat() async throws(LanguageModelError) {
+        clearConversation()
+        guard currentURL != nil else {
+            return events.resetStreamState()
+        }
+
+        _ = try? await evaluate(ChatGPTSubmissionScripts.startNewChat)
+
+        try await events.wait(
+            until: { [self] in
+                guard let state = events.pageState else { return false }
+                return state.isComposerPresent && state.urlConversationID == nil
+            },
+            deadline: Date.now.addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds)),
+            timeoutError: .sessionNotReady
+        )
+    }
 }
 
 private extension ChatGPTWebViewHost {
-    // MARK: - Conversation Helpers
+    func describe(_ result: Any?) -> String {
+        (result as? String) ?? "nil"
+    }
+
+    func dismissGate() async {
+        _ = try? await evaluate(ChatGPTSubmissionScripts.dismissGate)
+    }
 
     func isConversationIntact() async -> Bool {
         guard !isPageStateLost else { return false }
 
         if let conversationID {
-            guard let pageState = try? await probePageState(),
-                  pageState.urlConversationID == conversationID else { return false }
+            guard events.pageState?.urlConversationID == conversationID else { return false }
         }
 
         guard let anchorMessageID else { return true }
         return await probeTranscript(anchorMessageID: anchorMessageID)?.isAnchorPresent == true
+    }
+
+    func isOK(_ result: Any?) -> Bool {
+        guard let string = result as? String,
+              let data = string.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return (object["ok"] as? Bool) == true
+    }
+
+    func isPromptUnsent(
+        _ prompt: String,
+        since baseline: ChatGPTTranscriptState?
+    ) async throws(LanguageModelError) -> Bool {
+        // A send is confirmed by its stream, or by a new user message.
+        let isSent = try await events.wait(
+            until: { [self] in
+                guard !events.hasStreamStarted else { return true }
+                guard let lastUserMessageID = events.pageState?.lastUserMessageID else { return false }
+                return lastUserMessageID != baseline?.lastUserMessageID
+            },
+            deadline: Date.now.addingTimeInterval(Double(Floats.submissionConfirmationTimeoutSeconds))
+        )
+
+        guard !isSent else { return false }
+
+        // No signal confirmed the send. The prompt is unsent only if the
+        // composer still holds it, so an unconfirmed but successful send
+        // is never submitted twice.
+        guard let transcript = await probeTranscript(),
+              !transcript.hasNewUserMessage(since: baseline) else { return false }
+
+        return !events.hasStreamStarted && transcript.composerText.contains(prompt)
     }
 
     func loadConversation(_ url: URL) async {
@@ -163,6 +199,11 @@ private extension ChatGPTWebViewHost {
         await logDiagnostics("The page no longer shows the conversation.")
         clearConversation()
         throw .conversationLost
+    }
+
+    func needsReadinessAttention(_ state: ChatGPTPageState?) -> Bool {
+        guard let state else { return false }
+        return state.isChallengePresent || state.isLoggedOutModalPresent || (state.isComposerPresent && !state.isStreaming)
     }
 
     func prepareForTurn() async throws(LanguageModelError) {
@@ -189,67 +230,6 @@ private extension ChatGPTWebViewHost {
         guard try await waitForConversation() else {
             try await loseConversation()
         }
-    }
-
-    /// The page may still be rendering its messages once its composer
-    /// is ready, so the check is repeated until it passes or the window
-    /// elapses.
-    func waitForConversation() async throws(LanguageModelError) -> Bool {
-        let deadline = Date().addingTimeInterval(Double(Floats.conversationVerificationTimeoutSeconds))
-
-        repeat {
-            if await isConversationIntact() {
-                return true
-            }
-
-            try await sleep(for: Floats.readinessPollIntervalSeconds)
-        } while Date() < deadline
-
-        return false
-    }
-}
-
-private extension ChatGPTWebViewHost {
-    // MARK: - Submission Helpers
-
-    func describe(_ result: Any?) -> String {
-        (result as? String) ?? "nil"
-    }
-
-    func dismissGate() async {
-        _ = try? await evaluate(ChatGPTSubmissionScripts.dismissGate)
-    }
-
-    func isPromptUnsent(
-        _ prompt: String,
-        since baseline: ChatGPTTranscriptState?
-    ) async throws(LanguageModelError) -> Bool {
-        let deadline = Date().addingTimeInterval(Double(Floats.submissionConfirmationTimeoutSeconds))
-        var transcript: ChatGPTTranscriptState?
-
-        repeat {
-            guard !hasStreamStarted else { return false }
-
-            transcript = await probeTranscript()
-            if let transcript,
-               transcript.hasNewUserMessage(since: baseline) || !transcript.composerText.contains(prompt) {
-                return false
-            }
-
-            try await sleep(for: Floats.turnPollIntervalSeconds)
-        } while Date() < deadline
-
-        // No signal confirmed the send. The prompt is unsent only if the
-        // composer was last seen still holding it, so an unconfirmed but
-        // successful send is never submitted twice.
-        return !hasStreamStarted && transcript != nil
-    }
-
-    func isOK(_ result: Any?) -> Bool {
-        guard let string = result as? String,
-              let data = string.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        return (object["ok"] as? Bool) == true
     }
 
     func replyAfterSubmission(
@@ -291,7 +271,11 @@ private extension ChatGPTWebViewHost {
             throw .submissionFailed("composer insertion failed: \(describe(insertResult))")
         }
 
-        let sendResult = try await evaluate(ChatGPTSubmissionScripts.sendPrompt)
+        let sendResult = try await evaluate(
+            ChatGPTSubmissionScripts.sendPrompt,
+            arguments: ["generation": events.turnGeneration]
+        )
+
         guard isOK(sendResult) else {
             throw .submissionFailed("composer send failed: \(describe(sendResult))")
         }
@@ -299,22 +283,55 @@ private extension ChatGPTWebViewHost {
 
     func submitComposerWhenReady(_ prompt: String) async throws(LanguageModelError) {
         // The page serves its composer before it can accept input, so
-        // a submission it rejects is retried, once readiness is
-        // confirmed again, until the readiness window elapses.
-        let deadline = Date().addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
+        // a submission it rejects is retried, once the page changes
+        // and readiness is confirmed again, until the readiness window
+        // elapses.
+        let deadline = Date.now.addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
 
         while true {
             do throws(LanguageModelError) {
                 return try await submitComposer(prompt)
             } catch let .submissionFailed(reason) {
-                guard Date() < deadline else {
+                guard Date.now < deadline else {
                     await logDiagnostics(reason)
                     throw .submissionFailed(reason)
                 }
             }
 
-            try await sleep(for: Floats.readinessPollIntervalSeconds)
+            let sequence = events.sequence
+            _ = try await events.wait(
+                until: { [self] in events.sequence != sequence },
+                deadline: deadline
+            )
+
             try await prepareForSubmission()
+        }
+    }
+
+    func throwReadinessFailure() throws(LanguageModelError) -> Never {
+        guard let lastNavigationError else {
+            throw .sessionNotReady
+        }
+
+        throw .requestFailed(lastNavigationError.localizedDescription)
+    }
+
+    /// The page may still be rendering its messages once its composer
+    /// is ready, so the check is repeated after every change until it
+    /// passes or the window elapses.
+    func waitForConversation() async throws(LanguageModelError) -> Bool {
+        let deadline = Date.now.addingTimeInterval(Double(Floats.conversationVerificationTimeoutSeconds))
+
+        while true {
+            if await isConversationIntact() {
+                return true
+            }
+
+            let sequence = events.sequence
+            guard try await events.wait(
+                until: { [self] in events.sequence != sequence },
+                deadline: deadline
+            ) else { return false }
         }
     }
 }

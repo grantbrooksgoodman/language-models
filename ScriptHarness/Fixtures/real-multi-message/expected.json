@@ -1,0 +1,15 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [],
+    "fullText": "Hello",
+    "generation": null,
+    "isFullTextIncomplete": false,
+    "messageID": "ab9680a6-ad36-496e-bfb7-b3612a2aa3f9",
+    "textSource": "fallbackMarkdown",
+    "type": "completed"
+  }
+]

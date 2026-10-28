@@ -1,0 +1,15 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [],
+    "fullText": "```swift\nfunc add(_ a: Int, _ b: Int) -> Int {\n    return a + b\n}\n```",
+    "generation": null,
+    "isFullTextIncomplete": false,
+    "messageID": "606e1aa6-4ebf-4ea0-bc65-69d26cd8f054",
+    "textSource": "fallbackMarkdown",
+    "type": "completed"
+  }
+]

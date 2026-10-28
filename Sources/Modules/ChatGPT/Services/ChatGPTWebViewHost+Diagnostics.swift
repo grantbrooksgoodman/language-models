@@ -41,6 +41,14 @@ extension ChatGPTWebViewHost {
         #endif
     }
 
+    func logIgnoredStream(_ message: ChatGPTBridgeMessage) {
+        #if DEBUG
+        let generation = message.generation.map(String.init) ?? "none"
+        let turn = String(events.turnGeneration)
+        Self.logger.warning("Ignored a stream message of generation \(generation, privacy: .public) during turn \(turn, privacy: .public).")
+        #endif
+    }
+
     /// Logs the links in a reply read from the page, so a citation
     /// chip that reaches the reply can be identified by its markup.
     func logLinks(in renderedReply: ChatGPTRenderedReply) {

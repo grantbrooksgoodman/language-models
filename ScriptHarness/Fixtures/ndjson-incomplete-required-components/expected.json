@@ -1,0 +1,15 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [],
+    "fullText": "See the image.",
+    "generation": null,
+    "isFullTextIncomplete": true,
+    "messageID": "m1",
+    "textSource": "fallbackMarkdown",
+    "type": "completed"
+  }
+]

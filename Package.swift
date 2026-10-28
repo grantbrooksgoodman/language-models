@@ -21,6 +21,7 @@ let package = Package(
             name: "LanguageModels",
             dependencies: [],
             path: "Sources",
+            resources: [.copy("Modules/ChatGPT/Scripts/JavaScript")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

@@ -1,0 +1,15 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [],
+    "fullText": "First & second <p>\n\nlet x = \"1\";",
+    "generation": null,
+    "isFullTextIncomplete": false,
+    "messageID": null,
+    "textSource": "partialHTML",
+    "type": "completed"
+  }
+]

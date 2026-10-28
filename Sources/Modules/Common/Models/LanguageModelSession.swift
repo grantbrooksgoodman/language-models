@@ -7,6 +7,7 @@
 
 /* Native */
 import Foundation
+import UIKit
 
 /// A conversation with a language model.
 ///
@@ -38,12 +39,20 @@ import Foundation
 ///   session is released.
 @MainActor
 public final class LanguageModelSession {
+    // MARK: - Constants Accessors
+
+    private typealias Strings = Constants.Strings
+
     // MARK: - Properties
 
     private let responders: [any LanguageModelResponding]
 
     private var conversationResponder: (any LanguageModelResponding)?
+
+    private var hasBackgroundTimeExpired = false
+
     private var isRunningCall = false
+
     private var waitingCalls = [(id: UUID, continuation: CheckedContinuation<Bool, Never>)]()
 
     // MARK: - Init
@@ -96,6 +105,10 @@ public final class LanguageModelSession {
     /// call that is cancelled while waiting its turn throws
     /// ``LanguageModelError/cancelled`` before it runs.
     ///
+    /// - Important: The session requests background execution time
+    ///   while a reply is in progress, and throws
+    ///   ``LanguageModelError/interrupted`` if that time expires.
+    ///
     /// - Parameter prompt: The prompt to send. Must not be empty after
     ///   trimming whitespace.
     ///
@@ -121,15 +134,17 @@ public final class LanguageModelSession {
         try await waitForTurn()
         defer { finishTurn() }
 
-        guard let conversationResponder else {
-            return try await firstResponse(to: trimmed)
-        }
+        return try await perform { [self] () async throws(LanguageModelError) -> String in
+            guard let conversationResponder else {
+                return try await firstResponse(to: trimmed)
+            }
 
-        do throws(LanguageModelError) {
-            return try await conversationResponder.response(to: trimmed)
-        } catch .conversationLost {
-            self.conversationResponder = nil
-            throw .conversationLost
+            do throws(LanguageModelError) {
+                return try await conversationResponder.response(to: trimmed)
+            } catch .conversationLost {
+                self.conversationResponder = nil
+                throw .conversationLost
+            }
         }
     }
 
@@ -151,8 +166,10 @@ public final class LanguageModelSession {
             finishTurn()
         }
 
-        for responder in responders {
-            try await responder.startNewConversation()
+        try await perform { [self] () async throws(LanguageModelError) in
+            for responder in responders {
+                try await responder.startNewConversation()
+            }
         }
     }
 
@@ -197,6 +214,55 @@ public final class LanguageModelSession {
         }
 
         throw lastError
+    }
+
+    /// The unit of work throws only `LanguageModelError`, which the
+    /// task erases; a cancellation that followed the expiration of the
+    /// background task's time is reported as an interruption.
+    private func languageModelError(from error: any Error) -> LanguageModelError {
+        switch error {
+        case LanguageModelError.cancelled where hasBackgroundTimeExpired: .interrupted
+        case let error as LanguageModelError: error
+        case is CancellationError: .cancelled
+        default: .requestFailed(error.localizedDescription)
+        }
+    }
+
+    /// The unit of work runs in a background task, whose expiration
+    /// cancels it; the session then reports the interruption rather
+    /// than a cancellation.
+    private func perform<Value: Sendable>(
+        _ work: @escaping @MainActor @Sendable () async throws(LanguageModelError) -> Value
+    ) async throws(LanguageModelError) -> Value {
+        hasBackgroundTimeExpired = false
+        let unit = Task { @MainActor in
+            try await work()
+        }
+
+        let identifier = UIApplication.shared.beginBackgroundTask(withName: Strings.backgroundTaskName) { [weak self] in
+            self?.hasBackgroundTimeExpired = true
+            unit.cancel()
+        }
+
+        defer {
+            if identifier != .invalid {
+                UIApplication.shared.endBackgroundTask(identifier)
+            }
+        }
+
+        let result = await withTaskCancellationHandler {
+            await unit.result
+        } onCancel: {
+            unit.cancel()
+        }
+
+        switch result {
+        case let .success(value):
+            return value
+
+        case let .failure(error):
+            throw languageModelError(from: error)
+        }
     }
 
     private func waitForTurn() async throws(LanguageModelError) {

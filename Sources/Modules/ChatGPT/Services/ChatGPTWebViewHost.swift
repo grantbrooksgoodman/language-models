@@ -21,28 +21,22 @@ final class ChatGPTWebViewHost: NSObject {
 
     nonisolated static let baseURL = URL(string: Strings.baseURLString)!
 
+    /// The page state and the current turn's stream events, waited on
+    /// by every readiness, submission, and reply step.
+    let events = ChatGPTPageEventService()
+
     /// The last assistant message of the last successful turn.
     private(set) var anchorMessageID: String?
 
     private(set) var conversationID: String?
     private(set) var conversationURL: URL?
-    private(set) var hasStreamStarted = false
     private(set) var isConversationActive = false
     private(set) var isPageStateLost = false
+    private(set) var isTurnInFlight = false
 
     /// The error of the last navigation that failed, until a navigation
     /// starts or finishes.
     private(set) var lastNavigationError: (any Error)?
-
-    private(set) var lastStreamCompletionDate: Date?
-
-    /// The number of conversation streams that have started but not
-    /// completed.
-    private(set) var openStreamCount = 0
-
-    /// The completions of every conversation stream since the stream
-    /// state was last reset, in order.
-    private(set) var streamCompletions = [ChatGPTStreamCompletion]()
 
     private static let dataStoreIdentifier = UUID(uuidString: Strings.dataStoreIdentifier)!
 
@@ -66,6 +60,9 @@ final class ChatGPTWebViewHost: NSObject {
 
     override init() {
         super.init()
+        events.refresh = { [weak self] in
+            try? await self?.probePageState()
+        }
     }
 
     deinit {
@@ -84,6 +81,11 @@ final class ChatGPTWebViewHost: NSObject {
 
     // MARK: - Methods
 
+    func beginTurn() {
+        isTurnInFlight = true
+        events.beginTurn()
+    }
+
     func clearConversation() {
         anchorMessageID = nil
         conversationID = nil
@@ -92,14 +94,33 @@ final class ChatGPTWebViewHost: NSObject {
         isPageStateLost = false
     }
 
+    func endTurn() {
+        isTurnInFlight = false
+        events.endTurn()
+    }
+
     func evaluate(
-        _ script: String,
+        _ script: ChatGPTScript,
         arguments: [String: Any] = [:]
     ) async throws(LanguageModelError) -> Any? {
-        let webView = ensureWebView()
+        guard let source = ChatGPTScriptResources.source(for: script) else {
+            throw .javaScriptEvaluationFailed("The script resource \(script.name) is missing.")
+        }
+
+        // A turn in flight never gets a replacement web view; it is
+        // interrupted instead.
+        guard let webView = isTurnInFlight ? webView : ensureWebView() else {
+            throw .interrupted
+        }
+
+        assert(
+            Set(arguments.keys) == Set(ChatGPTScriptResources.arguments(for: script)),
+            "The arguments of \(script.name) differ from its manifest entry."
+        )
+
         do {
             return try await webView.callAsyncJavaScript(
-                script,
+                source,
                 arguments: arguments,
                 contentWorld: .page
             )
@@ -180,51 +201,16 @@ final class ChatGPTWebViewHost: NSObject {
         lastNavigationError = nil
         webView.reload()
     }
-
-    func resetStreamState() {
-        hasStreamStarted = false
-        lastStreamCompletionDate = nil
-        openStreamCount = 0
-        streamCompletions = []
-    }
-
-    func sleep(
-        for seconds: CGFloat
-    ) async throws(LanguageModelError) {
-        do {
-            try await Task.sleep(for: .seconds(Double(seconds)))
-        } catch {
-            throw .cancelled
-        }
-    }
 }
 
 private extension ChatGPTWebViewHost {
-    // MARK: - Computed Properties
+    // MARK: - Properties
 
     var windowBounds: CGRect {
         UIApplication.shared.mainWindow?.bounds ?? UIApplication.shared.mainScreen.bounds
     }
 
-    // MARK: - Web View Lifecycle
-
-    @discardableResult
-    func ensureWebView() -> StaticWebView {
-        if let webView {
-            // Re-attach if the web view was built before a window existed;
-            // an off-window web view is throttled and may never finish loading.
-            if webView.window == nil {
-                UIApplication.shared.mainWindow?.addSubview(webView)
-            }
-
-            return webView
-        }
-
-        let webView = buildWebView()
-        self.webView = webView
-        UIApplication.shared.mainWindow?.addSubview(webView)
-        return webView
-    }
+    // MARK: - Methods
 
     func buildWebView() -> StaticWebView {
         let configuration = WKWebViewConfiguration()
@@ -233,19 +219,14 @@ private extension ChatGPTWebViewHost {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.defaultWebpagePreferences.preferredContentMode = .desktop
 
-        for script in ChatGPTScripts.documentStartScripts {
+        for script in ChatGPTScripts.documentStartScripts + [ChatGPTBridgeScripts.fetchInterceptor] {
+            guard let source = ChatGPTScriptResources.source(for: script) else { continue }
             configuration.userContentController.addUserScript(.init(
-                source: script,
+                source: source,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             ))
         }
-
-        configuration.userContentController.addUserScript(.init(
-            source: ChatGPTBridgeScripts.fetchInterceptor,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
-        ))
 
         configuration.userContentController.add(
             WeakScriptMessageHandler(delegate: self),
@@ -271,17 +252,26 @@ private extension ChatGPTWebViewHost {
         return webView
     }
 
-    func teardownWebView() {
-        webView?.stopLoading()
-        webView?.navigationDelegate = nil
-        webView?.removeFromSuperview()
-        webView = nil
+    @discardableResult
+    func ensureWebView() -> StaticWebView {
+        if let webView {
+            // Re-attach if the web view was built before a window existed;
+            // an off-window web view is throttled and may never finish loading.
+            if webView.window == nil {
+                UIApplication.shared.mainWindow?.addSubview(webView)
+            }
+
+            return webView
+        }
+
+        let webView = buildWebView()
+        self.webView = webView
+        UIApplication.shared.mainWindow?.addSubview(webView)
+        return webView
     }
 
-    // MARK: - Auxiliary
-
     func evaluateJSON<Value: Decodable>(
-        _ script: String,
+        _ script: ChatGPTScript,
         arguments: [String: Any] = [:]
     ) async -> Value? {
         guard let json = try? await evaluate(
@@ -294,6 +284,14 @@ private extension ChatGPTWebViewHost {
             Value.self,
             from: data
         )
+    }
+
+    func teardownWebView() {
+        webView?.stopLoading()
+        webView?.navigationDelegate = nil
+        webView?.removeFromSuperview()
+        webView = nil
+        events.notify()
     }
 }
 
@@ -316,6 +314,7 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
         didStartProvisionalNavigation navigation: WKNavigation!
     ) {
         lastNavigationError = nil
+        events.notify()
     }
 
     // MARK: - Did Finish
@@ -325,6 +324,7 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
         didFinish navigation: WKNavigation!
     ) {
         lastNavigationError = nil
+        events.notify()
     }
 
     // MARK: - Did Fail
@@ -336,6 +336,7 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
     ) {
         guard !isNavigationCancellation(error) else { return }
         lastNavigationError = error
+        events.notify()
     }
 
     // MARK: - Did Fail Provisional Navigation
@@ -347,6 +348,7 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
     ) {
         guard !isNavigationCancellation(error) else { return }
         lastNavigationError = error
+        events.notify()
     }
 
     // MARK: - Web Content Process Did Terminate
@@ -355,6 +357,10 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
         teardownWebView()
         if isConversationActive {
             isPageStateLost = true
+        }
+
+        if isTurnInFlight {
+            events.interruptTurn()
         }
     }
 }
@@ -374,20 +380,8 @@ extension ChatGPTWebViewHost: WKScriptMessageHandler {
                   from: data
               ) else { return }
 
-        switch bridgeMessage {
-        case let .completed(completion):
-            hasStreamStarted = true
-            lastStreamCompletionDate = Date()
-            openStreamCount = max(
-                0,
-                openStreamCount - 1
-            )
-
-            streamCompletions.append(completion)
-
-        case .started:
-            hasStreamStarted = true
-            openStreamCount += 1
+        guard events.receive(bridgeMessage) else {
+            return logIgnoredStream(bridgeMessage)
         }
     }
 }

@@ -1,0 +1,15 @@
+[
+  {
+    "generation": null,
+    "type": "started"
+  },
+  {
+    "citationLabels": [],
+    "fullText": "Café ☕ – 日本語 🍐 naïve façade.",
+    "generation": null,
+    "isFullTextIncomplete": false,
+    "messageID": "m1",
+    "textSource": "markdown",
+    "type": "completed"
+  }
+]
