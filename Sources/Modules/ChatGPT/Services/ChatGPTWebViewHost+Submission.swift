@@ -56,12 +56,16 @@ extension ChatGPTWebViewHost {
     }
 
     func startNewChat() async throws(LanguageModelError) {
+        guard currentURL != nil else {
+            return resetStreamState()
+        }
+
         _ = try? await evaluate(ChatGPTSubmissionScripts.startNewChat)
 
         let deadline = Date().addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
         while Date() < deadline {
-            let state = try await probePageState()
-            if state.isComposerPresent,
+            if let state = try? await probePageState(),
+               state.isComposerPresent,
                state.urlConversationID == nil {
                 return
             }

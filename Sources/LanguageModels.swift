@@ -28,6 +28,9 @@ public enum LanguageModels {
     @MainActor
     private(set) static var geminiAPIKeyDelegate: GeminiAPIKeyDelegate?
 
+    private static let maxConcurrentChatGPTOperations = 2
+    private static let maxConcurrentGeminiOperations = 10
+
     // MARK: - Methods
 
     /// Registers the delegate that supplies the Gemini API key.
@@ -46,10 +49,12 @@ public enum LanguageModels {
     /// dictionary mapping every prompt to its reply.
     ///
     /// Each prompt is answered independently by its own
-    /// ``LanguageModelSession``, up to ten at a time. Duplicate prompts –
-    /// within this batch or across concurrent calls – share a single
-    /// in-flight request, and collapse to one entry in the returned
-    /// dictionary. If any prompt fails, the whole batch fails.
+    /// ``LanguageModelSession``, up to ten at a time, or two at a time
+    /// with ``LanguageModelProvider/chatGPT``, because each of those
+    /// sessions holds a hidden web view. Duplicate prompts – within
+    /// this batch or across concurrent calls – share a single in-flight
+    /// request, and collapse to one entry in the returned dictionary.
+    /// If any prompt fails, the whole batch fails.
     ///
     /// ```swift
     /// let replies = try await LanguageModels.responses(
@@ -106,7 +111,7 @@ public enum LanguageModels {
             }
 
             let maxConcurrentOperations = min(
-                10,
+                maxConcurrentOperations(for: provider),
                 prompts.count
             )
 
@@ -122,5 +127,16 @@ public enum LanguageModels {
         }
 
         return replies
+    }
+
+    // MARK: - Auxiliary
+
+    private static func maxConcurrentOperations(
+        for provider: LanguageModelProvider
+    ) -> Int {
+        switch provider {
+        case .chatGPT: maxConcurrentChatGPTOperations
+        case .gemini: maxConcurrentGeminiOperations
+        }
     }
 }

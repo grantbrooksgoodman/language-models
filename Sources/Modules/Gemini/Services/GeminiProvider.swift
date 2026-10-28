@@ -8,7 +8,8 @@
 /* Native */
 import Foundation
 
-struct GeminiProvider: LanguageModelResponding {
+@MainActor
+final class GeminiProvider: LanguageModelResponding {
     // MARK: - Constants Accessors
 
     private typealias Floats = Constants.CGFloats
@@ -17,6 +18,8 @@ struct GeminiProvider: LanguageModelResponding {
     // MARK: - Properties
 
     private let config: GeminiConfig
+
+    private var history = [GeminiRequest.Content]()
 
     // MARK: - Init
 
@@ -37,8 +40,13 @@ struct GeminiProvider: LanguageModelResponding {
             throw .missingAPIKey
         }
 
+        let userTurn = GeminiRequest.Content(
+            parts: [.init(text: prompt)],
+            role: "user"
+        )
+
         let urlRequest = try makeURLRequest(
-            geminiRequest(for: prompt),
+            geminiRequest(for: userTurn),
             apiKey: apiKey
         )
 
@@ -77,10 +85,18 @@ struct GeminiProvider: LanguageModelResponding {
             throw .emptyResponse
         }
 
+        history.append(userTurn)
+        history.append(.init(
+            parts: [.init(text: text)],
+            role: "model"
+        ))
+
         return text
     }
 
-    func startNewConversation() async throws(LanguageModelError) {}
+    func startNewConversation() async throws(LanguageModelError) {
+        history = []
+    }
 
     // MARK: - Auxiliary
 
@@ -98,12 +114,9 @@ struct GeminiProvider: LanguageModelResponding {
         return "\(description): \(message)"
     }
 
-    private func geminiRequest(for prompt: String) -> GeminiRequest {
+    private func geminiRequest(for userTurn: GeminiRequest.Content) -> GeminiRequest {
         .init(
-            contents: [.init(
-                parts: [.init(text: prompt)],
-                role: "user"
-            )],
+            contents: history + [userTurn],
             systemInstruction: config.systemMessage.map { systemMessage in
                 .init(
                     parts: [.init(text: systemMessage)],

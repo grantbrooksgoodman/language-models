@@ -19,7 +19,8 @@ import Foundation
 ///
 /// A session created without an explicit provider uses Gemini for its
 /// API-level response times, falling back to ChatGPT if the Gemini
-/// request fails.
+/// request fails. The provider that replies to the first turn answers
+/// every later turn of the conversation, with no fallback.
 public enum LanguageModelProvider: Sendable {
     /// ChatGPT, driven through its web app in a hidden web view.
     case chatGPT
