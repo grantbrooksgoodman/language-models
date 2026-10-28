@@ -29,6 +29,11 @@ final class ChatGPTWebViewHost: NSObject {
     private(set) var hasStreamStarted = false
     private(set) var isConversationActive = false
     private(set) var isPageStateLost = false
+
+    /// The error of the last navigation that failed, until a navigation
+    /// starts or finishes.
+    private(set) var lastNavigationError: (any Error)?
+
     private(set) var lastStreamCompletionDate: Date?
 
     /// The number of conversation streams that have started but not
@@ -45,12 +50,16 @@ final class ChatGPTWebViewHost: NSObject {
     /// chats share a single browser session (cookies/cache/local storage).
     private static let sharedDataStore = WKWebsiteDataStore(forIdentifier: dataStoreIdentifier)
 
-    private var webView: StaticWebView?
+    private(set) var webView: StaticWebView?
 
     // MARK: - Computed Properties
 
     var currentURL: URL? {
         webView?.url
+    }
+
+    var isLoading: Bool {
+        webView?.isLoading ?? false
     }
 
     // MARK: - Init
@@ -102,6 +111,7 @@ final class ChatGPTWebViewHost: NSObject {
     func load(_ url: URL = ChatGPTWebViewHost.baseURL) {
         let webView = ensureWebView()
         guard webView.url != url else { return }
+        lastNavigationError = nil
         webView.load(.init(url: url))
     }
 
@@ -167,6 +177,7 @@ final class ChatGPTWebViewHost: NSObject {
             return load()
         }
 
+        lastNavigationError = nil
         webView.reload()
     }
 
@@ -296,6 +307,46 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         nil
+    }
+
+    // MARK: - Did Start Provisional Navigation
+
+    func webView(
+        _ webView: WKWebView,
+        didStartProvisionalNavigation navigation: WKNavigation!
+    ) {
+        lastNavigationError = nil
+    }
+
+    // MARK: - Did Finish
+
+    func webView(
+        _ webView: WKWebView,
+        didFinish navigation: WKNavigation!
+    ) {
+        lastNavigationError = nil
+    }
+
+    // MARK: - Did Fail
+
+    func webView(
+        _ webView: WKWebView,
+        didFail navigation: WKNavigation!,
+        withError error: any Error
+    ) {
+        guard !isNavigationCancellation(error) else { return }
+        lastNavigationError = error
+    }
+
+    // MARK: - Did Fail Provisional Navigation
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: any Error
+    ) {
+        guard !isNavigationCancellation(error) else { return }
+        lastNavigationError = error
     }
 
     // MARK: - Web Content Process Did Terminate

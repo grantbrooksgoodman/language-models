@@ -12,6 +12,9 @@ enum Constants {
     // MARK: - CGFloat
 
     enum CGFloats {
+        static let challengeAutoResolutionTimeoutSeconds: CGFloat = 15
+        static let challengeCloseButtonInset: CGFloat = 16
+        static let challengePresentationTimeoutSeconds: CGFloat = 120
         static let conversationVerificationTimeoutSeconds: CGFloat = 5
         static let followUpStreamTimeoutSeconds: CGFloat = 10
         static let geminiRequestTimeoutSeconds: CGFloat = 60
@@ -56,5 +59,8 @@ enum Constants {
 
         static let loggerCategory = "ChatGPT"
         static let loggerSubsystem = "LanguageModels"
+
+        /// The error domain of WebKit's legacy navigation errors.
+        static let webKitErrorDomain = "WebKitErrorDomain"
     }
 }

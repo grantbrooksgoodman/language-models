@@ -21,6 +21,7 @@ LanguageModels supports two backends: **Gemini**, called directly through its HT
 - [Configuration](#configuration)
   - [GeminiConfig](#geminiconfig)
   - [GeminiModel](#geminimodel)
+  - [Challenge Presentation](#challenge-presentation)
 - [Errors](#errors)
 - [Concurrency](#concurrency)
 
@@ -180,6 +181,16 @@ The `systemMessage`, when provided, steers the model's response and is sent alon
 | `flash20` | `gemini-2.0-flash` |
 | `flash25` | `gemini-2.5-flash` (default) |
 
+### Challenge Presentation
+
+ChatGPT may show a human-verification challenge. A challenge that does not clear on its own within fifteen seconds makes a session method throw `challengeRequired`. Set `LanguageModels.presentsChallenges` to `true` to instead present the challenge over your app's key window, with a close button, for up to two minutes:
+
+```swift
+LanguageModels.presentsChallenges = true
+```
+
+The default is `false`. The web view covers your app's interface while the challenge is shown, and the call that triggered it waits until the challenge clears, the close button is tapped, or two minutes pass. Presenting requires a key window; without one, the call throws `challengeRequired`. Tapping the close button also throws it.
+
 ---
 
 ## Errors
@@ -189,14 +200,14 @@ The `systemMessage`, when provided, steers the model's response and is sent alon
 | Case | Description |
 | --- | --- |
 | `cancelled` | The task that called the method was cancelled. |
-| `challengeRequired` | A human-verification challenge must be resolved before ChatGPT can respond. |
+| `challengeRequired` | A human-verification challenge must be resolved before ChatGPT can respond. Set `LanguageModels.presentsChallenges` to `true` to show the challenge so you can solve it. |
 | `conversationLost` | The provider can no longer continue the current conversation. ChatGPT throws this error when the page no longer shows the conversation – for example, after its web content process is terminated – and loading the conversation again does not restore it. The next turn starts a fresh conversation. |
 | `emptyResponse` | The model returned an empty reply, or no reply arrived in time. |
 | `invalidPrompt` | The prompt was empty after trimming whitespace. |
 | `javaScriptEvaluationFailed` | Evaluating JavaScript in the ChatGPT web view failed. |
 | `missingAPIKey` | No Gemini API key has been registered. |
 | `pageStateUnavailable` | ChatGPT's page state could not be read. |
-| `requestFailed` | The Gemini network request failed. |
+| `requestFailed` | The network request failed. For ChatGPT, the page could not load – for example, because the device is offline. |
 | `sessionNotReady` | The ChatGPT session did not become ready in time. |
 | `submissionFailed` | The prompt could not be submitted to ChatGPT. |
 

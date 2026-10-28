@@ -33,6 +33,9 @@ public enum LanguageModelError: LocalizedError {
 
     /// A human-verification challenge must be resolved before the
     /// request can proceed.
+    ///
+    /// Set ``LanguageModels/presentsChallenges`` to `true` to show the
+    /// challenge so you can solve it.
     case challengeRequired
 
     /// The provider can no longer continue the current conversation.
@@ -66,7 +69,9 @@ public enum LanguageModelError: LocalizedError {
 
     /// The network request failed.
     ///
-    /// The associated value describes the failure.
+    /// The associated value describes the failure. For ChatGPT, the
+    /// page could not load – for example, because the device is
+    /// offline.
     case requestFailed(String)
 
     /// The session did not become ready in time.

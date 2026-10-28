@@ -22,14 +22,20 @@ extension ChatGPTWebViewHost {
         }
 
         let deadline = Date().addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
+        var idleStartDate: Date?
         var nextReloadDate = Date().addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
 
         while Date() < deadline {
+            try throwIfOffline()
+
             // A transient failure to read the page state (e.g. mid-navigation)
             // shouldn't abort readiness; keep polling until the deadline.
-            if let state = try? await probePageState() {
+            let state = try? await probePageState()
+            if let state {
                 if state.isChallengePresent {
-                    throw .challengeRequired
+                    try await resolveChallenge()
+                    idleStartDate = nil
+                    continue
                 }
 
                 if state.isLoggedOutModalPresent {
@@ -42,17 +48,32 @@ extension ChatGPTWebViewHost {
                 }
             }
 
-            // Recover from a stalled or failed page load: if the composer
-            // hasn't appeared within the interval, reload and keep waiting.
-            if Date() >= nextReloadDate {
+            // A page that has finished loading with nothing to show is
+            // idle; it is reloaded once it has been idle for the full
+            // interval, as is a page whose navigation failed.
+            if isLoading || state?.isStreaming == true {
+                idleStartDate = nil
+            } else if idleStartDate == nil {
+                idleStartDate = Date()
+            }
+
+            if shouldReload(
+                idleStartDate: idleStartDate,
+                nextReloadDate: nextReloadDate
+            ) {
                 reload()
+                idleStartDate = nil
                 nextReloadDate = Date().addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
             }
 
             try await sleep(for: Floats.readinessPollIntervalSeconds)
         }
 
-        throw .sessionNotReady
+        guard let lastNavigationError else {
+            throw .sessionNotReady
+        }
+
+        throw .requestFailed(lastNavigationError.localizedDescription)
     }
 
     func startNewChat() async throws(LanguageModelError) {

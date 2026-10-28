@@ -28,6 +28,31 @@ public enum LanguageModels {
     @MainActor
     private(set) static var geminiAPIKeyDelegate: GeminiAPIKeyDelegate?
 
+    /// A Boolean value that indicates whether the ChatGPT provider
+    /// shows its web view so you can solve a human-verification
+    /// challenge.
+    ///
+    /// A challenge that does not clear on its own within fifteen
+    /// seconds makes a ``LanguageModelSession`` method throw
+    /// ``LanguageModelError/challengeRequired``. Set this property to
+    /// `true` to instead present the challenge over your app's key
+    /// window, with a close button, for up to two minutes:
+    ///
+    /// ```swift
+    /// LanguageModels.presentsChallenges = true
+    /// ```
+    ///
+    /// The default is `false`.
+    ///
+    /// - Important: The web view covers your app's interface while
+    ///   the challenge is shown, and the call that triggered it waits
+    ///   until the challenge clears, the close button is tapped, or
+    ///   two minutes pass. Presenting requires a key window; without
+    ///   one, the call throws ``LanguageModelError/challengeRequired``.
+    ///   Tapping the close button also throws it.
+    @MainActor
+    public static var presentsChallenges = false
+
     private static let maxConcurrentChatGPTOperations = 2
     private static let maxConcurrentGeminiOperations = 10
 
