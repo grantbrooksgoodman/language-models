@@ -8,7 +8,7 @@
 /* Native */
 import Foundation
 
-/// An injected script, identified by the name of its resource file.
+/// An injected script, identified by its name in `manifest.json`.
 struct ChatGPTScript: Hashable {
     let name: String
 }

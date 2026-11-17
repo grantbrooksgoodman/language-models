@@ -38,7 +38,10 @@ enum ChatGPTBridgeMessage: Decodable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        switch try container.decode(String.self, forKey: .type) {
+        switch try container.decode(
+            String.self,
+            forKey: .type
+        ) {
         case "completed":
             self = try .completed(.init(from: decoder))
 

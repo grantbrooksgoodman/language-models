@@ -48,7 +48,7 @@ actor InFlightResponseCoordinator {
         operation: @escaping ResponseOperation
     ) async throws(LanguageModelError) -> String {
         let waiterID = UUID()
-        let result = await withTaskCancellationHandler {
+        return try await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 addWaiter(
                     continuation,
@@ -64,9 +64,7 @@ actor InFlightResponseCoordinator {
                     forKey: key
                 )
             }
-        }
-
-        return try result.get()
+        }.get()
     }
 
     // MARK: - Auxiliary
@@ -110,24 +108,22 @@ actor InFlightResponseCoordinator {
         running operation: @escaping ResponseOperation
     ) -> InFlightOperation {
         let id = UUID()
-        let task = Task {
-            let result: ResponseResult
-            do throws(LanguageModelError) {
-                result = try await .success(operation())
-            } catch {
-                result = .failure(error)
-            }
-
-            finishOperation(
-                id: id,
-                forKey: key,
-                with: result
-            )
-        }
-
         return .init(
             id: id,
-            task: task
+            task: Task {
+                let result: ResponseResult
+                do throws(LanguageModelError) {
+                    result = try await .success(operation())
+                } catch {
+                    result = .failure(error)
+                }
+
+                finishOperation(
+                    id: id,
+                    forKey: key,
+                    with: result
+                )
+            }
         )
     }
 

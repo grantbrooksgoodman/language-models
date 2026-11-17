@@ -32,7 +32,9 @@ final class GeminiProvider: LanguageModelResponding {
 
     func prewarm() {}
 
-    func response(to prompt: String) async throws(LanguageModelError) -> String {
+    func response(
+        to prompt: String
+    ) async throws(LanguageModelError) -> String {
         let startDate = Date.now
         log("Requesting a reply from \(config.model.rawValue) with \(history.count) prior turns.")
         log(
@@ -80,12 +82,16 @@ final class GeminiProvider: LanguageModelResponding {
             GeminiErrorResponse.self,
             from: data
         ).error?.message,
-            !message.isEmpty else { return description }
+            !message.isEmpty else {
+            return description
+        }
 
         return "\(description): \(message)"
     }
 
-    private func geminiRequest(for userTurn: GeminiRequest.Content) -> GeminiRequest {
+    private func geminiRequest(
+        for userTurn: GeminiRequest.Content
+    ) -> GeminiRequest {
         .init(
             contents: history + [userTurn],
             systemInstruction: config.systemMessage.map { systemMessage in
@@ -120,9 +126,7 @@ final class GeminiProvider: LanguageModelResponding {
         _ geminiRequest: GeminiRequest,
         apiKey: String
     ) throws(LanguageModelError) -> URLRequest {
-        guard let url = URL(
-            string: "\(Strings.geminiEndpointPrefix)\(config.model.rawValue):generateContent"
-        ) else {
+        guard let url = URL(string: "\(Strings.geminiEndpointPrefix)\(config.model.rawValue):generateContent") else {
             throw .requestFailed("The request URL could not be constructed.")
         }
 
@@ -149,7 +153,9 @@ final class GeminiProvider: LanguageModelResponding {
         return urlRequest
     }
 
-    private func reply(to prompt: String) async throws(LanguageModelError) -> String {
+    private func reply(
+        to prompt: String
+    ) async throws(LanguageModelError) -> String {
         guard !Task.isCancelled else {
             throw .cancelled
         }
@@ -200,8 +206,10 @@ final class GeminiProvider: LanguageModelResponding {
             throw .requestFailed("The response could not be decoded.")
         }
 
-        guard let text = geminiResponse.text?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else {
+        guard let text = geminiResponse
+            .text?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !text.isEmpty else {
             throw .emptyResponse
         }
 

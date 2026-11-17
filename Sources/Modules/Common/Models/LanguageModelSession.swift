@@ -162,7 +162,7 @@ public final class LanguageModelSession {
     /// For a session created with ``init()``, the next turn tries
     /// Gemini, then ChatGPT, again. The call runs once the session's
     /// earlier calls have finished, and returns at once if the session
-    /// has not used ChatGPT.
+    /// has not loaded ChatGPT.
     ///
     /// - Throws: ``LanguageModelError`` if a fresh conversation cannot
     ///   be started. If the task that called the method is cancelled,
@@ -184,23 +184,20 @@ public final class LanguageModelSession {
 
     // MARK: - Auxiliary
 
-    private static func responder(
-        for provider: LanguageModelProvider
-    ) -> any LanguageModelResponding {
-        switch provider {
-        case .chatGPT: ChatGPTProvider()
-        case let .gemini(config): GeminiProvider(config: config)
-        }
-    }
-
     private func cancelWaitingCall(id: UUID) {
         guard let index = waitingCalls.firstIndex(where: { $0.id == id }) else { return }
-        waitingCalls.remove(at: index).continuation.resume(returning: false)
+        waitingCalls
+            .remove(at: index)
+            .continuation
+            .resume(returning: false)
     }
 
     private func finishTurn() {
         guard waitingCalls.isEmpty else {
-            return waitingCalls.removeFirst().continuation.resume(returning: true)
+            return waitingCalls
+                .removeFirst()
+                .continuation
+                .resume(returning: true)
         }
 
         isRunningCall = false
@@ -233,7 +230,12 @@ public final class LanguageModelSession {
         throw lastError
     }
 
-    private func languageModelError(from error: any Error) -> LanguageModelError {
+    /// The unit of work throws only `LanguageModelError`, which the
+    /// task erases; a cancellation that followed the expiration of the
+    /// background task's time is reported as an interruption.
+    private func languageModelError(
+        from error: any Error
+    ) -> LanguageModelError {
         switch error {
         case LanguageModelError.cancelled where hasBackgroundTimeExpired: .interrupted
         case let error as LanguageModelError: error
@@ -242,9 +244,6 @@ public final class LanguageModelSession {
         }
     }
 
-    /// The unit of work throws only `LanguageModelError`, which the
-    /// task erases; a cancellation that followed the expiration of the
-    /// background task's time is reported as an interruption.
     private func log(
         _ message: String,
         level: LanguageModelLogEntry.Level = .info,
@@ -264,13 +263,15 @@ public final class LanguageModelSession {
         )
     }
 
-    /// The unit of work runs in a background task, whose expiration
-    /// cancels it; the session then reports the interruption rather
-    /// than a cancellation.
-    private func name(of responder: any LanguageModelResponding) -> String {
+    private func name(
+        of responder: any LanguageModelResponding
+    ) -> String {
         responder is GeminiProvider ? "Gemini" : "ChatGPT"
     }
 
+    /// The unit of work runs in a background task, whose expiration
+    /// cancels it; the session then reports the interruption rather
+    /// than a cancellation.
     private func perform<Value: Sendable>(
         _ work: @escaping @MainActor @Sendable () async throws(LanguageModelError) -> Value
     ) async throws(LanguageModelError) -> Value {
@@ -279,7 +280,9 @@ public final class LanguageModelSession {
             try await work()
         }
 
-        let identifier = UIApplication.shared.beginBackgroundTask(withName: Strings.backgroundTaskName) { [weak self] in
+        let identifier = UIApplication.shared.beginBackgroundTask(
+            withName: Strings.backgroundTaskName
+        ) { [weak self] in
             self?.log(
                 "Background execution time expired; interrupting the call.",
                 level: .error
@@ -318,6 +321,15 @@ public final class LanguageModelSession {
             }
 
             throw error
+        }
+    }
+
+    private static func responder(
+        for provider: LanguageModelProvider
+    ) -> any LanguageModelResponding {
+        switch provider {
+        case .chatGPT: ChatGPTProvider()
+        case let .gemini(config): GeminiProvider(config: config)
         }
     }
 

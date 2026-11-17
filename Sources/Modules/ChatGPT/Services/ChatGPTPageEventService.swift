@@ -29,13 +29,11 @@ final class ChatGPTPageEventService {
 
     // MARK: - Properties
 
-    /// The on-demand page-state probe used when no event arrives
-    /// within the fallback interval.
-    var refresh: (@MainActor () async -> ChatGPTPageState?)?
-
     private(set) var hasStreamStarted = false
 
     private(set) var isTurnInterrupted = false
+
+    private(set) var lastChangeDate = Date.now
 
     private(set) var lastEventDate = Date.now
 
@@ -44,6 +42,10 @@ final class ChatGPTPageEventService {
     private(set) var openStreamCount = 0
 
     private(set) var pageState: ChatGPTPageState?
+
+    /// The on-demand page-state probe used when no event arrives
+    /// within the fallback interval.
+    var refresh: (@MainActor () async -> ChatGPTPageState?)?
 
     /// The number of fallback refreshes, so a waiter can tell that one
     /// happened since it last looked.
@@ -78,14 +80,8 @@ final class ChatGPTPageEventService {
 
     /// Resumes every waiter so it re-checks its condition.
     func notify() {
-        lastEventDate = Date.now
-        sequence += 1
-        for id in waiters.keys {
-            resume(
-                id,
-                with: .event
-            )
-        }
+        lastChangeDate = Date.now
+        wakeWaiters()
     }
 
     /// Records the message, or returns `false` for a stream message of
@@ -118,6 +114,10 @@ final class ChatGPTPageEventService {
 
     /// Records a page state read on demand.
     func record(pageState: ChatGPTPageState) {
+        guard pageState != self.pageState else {
+            return wakeWaiters()
+        }
+
         self.pageState = pageState
         notify()
     }
@@ -152,13 +152,13 @@ final class ChatGPTPageEventService {
 
             guard Date.now < deadline else { return false }
 
-            let refreshDate = lastEventDate.addingTimeInterval(Double(Floats.fallbackRefreshIntervalSeconds))
-            let wakeDate = min(
+            let refreshDate = lastEventDate
+                .addingTimeInterval(Double(Floats.fallbackRefreshIntervalSeconds))
+
+            switch await sleepUntilEvent(or: min(
                 deadline,
                 refreshDate
-            )
-
-            switch await sleepUntilEvent(or: wakeDate) {
+            )) {
             case .cancelled:
                 throw .cancelled
 
@@ -183,9 +183,7 @@ final class ChatGPTPageEventService {
         guard try await wait(
             until: condition,
             deadline: deadline
-        ) else {
-            throw timeoutError
-        }
+        ) else { throw timeoutError }
     }
 
     // MARK: - Auxiliary
@@ -193,7 +191,7 @@ final class ChatGPTPageEventService {
     private func refreshPageState() async {
         refreshCount += 1
         guard let state = await refresh?() else {
-            return notify()
+            return wakeWaiters()
         }
 
         record(pageState: state)
@@ -234,6 +232,17 @@ final class ChatGPTPageEventService {
                     with: .cancelled
                 )
             }
+        }
+    }
+
+    private func wakeWaiters() {
+        lastEventDate = Date.now
+        sequence += 1
+        for id in waiters.keys {
+            resume(
+                id,
+                with: .event
+            )
         }
     }
 }

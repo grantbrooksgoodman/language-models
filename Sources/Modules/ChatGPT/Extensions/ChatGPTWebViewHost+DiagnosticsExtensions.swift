@@ -1,5 +1,5 @@
 //
-//  ChatGPTWebViewHost+Diagnostics.swift
+//  ChatGPTWebViewHost+DiagnosticsExtensions.swift
 //
 //  Created by Grant Brooks Goodman.
 //  Copyright © NEOTechnica Corporation. All rights reserved.
@@ -53,8 +53,7 @@ extension ChatGPTWebViewHost {
     }
 
     func logIgnoredStream(_ message: ChatGPTBridgeMessage) {
-        let generation = message.generation.map(String.init) ?? "none"
-        log("Ignored a stream message of generation \(generation) during turn \(events.turnGeneration).")
+        log("Ignored a stream message of generation \(message.generation.map(String.init) ?? "none") during turn \(events.turnGeneration).")
     }
 
     /// Logs the links in a reply read from the page, so a citation

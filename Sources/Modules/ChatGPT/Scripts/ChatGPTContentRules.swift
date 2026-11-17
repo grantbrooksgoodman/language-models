@@ -7,7 +7,6 @@
 
 /* Native */
 import Foundation
-
 @preconcurrency import WebKit
 
 /// `WKContentRuleList`s that block assets the reply does not need –

@@ -1,6 +1,5 @@
-// Injected at document start, for the main frame only. Reports common
-// permission queries as denied so the page never prompts for
-// notifications, location, camera, etc.
+// Injected at document start, for the main frame only. Reports
+// notification permission and common permission queries as denied.
 (function(){
   // Notifications
   try {

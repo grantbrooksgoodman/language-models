@@ -3,8 +3,6 @@
 /* Native */
 import PackageDescription
 
-// MARK: - Package
-
 let package = Package(
     name: "LanguageModels",
     platforms: [

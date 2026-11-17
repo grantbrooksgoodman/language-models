@@ -8,7 +8,6 @@
 /* Native */
 import Foundation
 import UIKit
-
 @preconcurrency import WebKit
 
 @MainActor
@@ -38,13 +37,13 @@ final class ChatGPTWebViewHost: NSObject {
     /// starts or finishes.
     private(set) var lastNavigationError: (any Error)?
 
+    private(set) var webView: StaticWebView?
+
     private static let dataStoreIdentifier = UUID(uuidString: Strings.dataStoreIdentifier)!
 
     /// One persistent data store shared by every host, so all concurrent
     /// chats share a single browser session (cookies/cache/local storage).
     private static let sharedDataStore = WKWebsiteDataStore(forIdentifier: dataStoreIdentifier)
-
-    private(set) var webView: StaticWebView?
 
     // MARK: - Computed Properties
 
@@ -56,7 +55,7 @@ final class ChatGPTWebViewHost: NSObject {
         webView?.isLoading ?? false
     }
 
-    // MARK: - Init
+    // MARK: - Object Lifecycle
 
     override init() {
         super.init()
@@ -71,11 +70,10 @@ final class ChatGPTWebViewHost: NSObject {
         // across requests. The host may be released off the main thread,
         // so the UIKit teardown runs on the main actor.
         guard let webView else { return }
-        let releasedWebView = webView
         Task { @MainActor in
-            releasedWebView.stopLoading()
-            releasedWebView.navigationDelegate = nil
-            releasedWebView.removeFromSuperview()
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+            webView.removeFromSuperview()
         }
     }
 
@@ -144,24 +142,24 @@ final class ChatGPTWebViewHost: NSObject {
         }
     }
 
-    func load(_ url: URL = ChatGPTWebViewHost.baseURL) {
+    func load(
+        _ url: URL = ChatGPTWebViewHost.baseURL
+    ) {
         let webView = ensureWebView()
         guard webView.url != url else { return }
         log("Loading \(url.absoluteString).")
+        isPageStateLost = false
         lastNavigationError = nil
         webView.load(.init(url: url))
     }
 
     func probePageState() async throws(LanguageModelError) -> ChatGPTPageState {
         guard let json = try await evaluate(ChatGPTBridgeScripts.pageStateProbe) as? String,
-              let data = json.data(using: .utf8) else {
-            throw .pageStateUnavailable
-        }
-
-        guard let pageState = try? JSONDecoder().decode(
-            ChatGPTPageState.self,
-            from: data
-        ) else {
+              let data = json.data(using: .utf8),
+              let pageState = try? JSONDecoder().decode(
+                  ChatGPTPageState.self,
+                  from: data
+              ) else {
             throw .pageStateUnavailable
         }
 
@@ -238,7 +236,10 @@ private extension ChatGPTWebViewHost {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = Self.sharedDataStore
 
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration
+            .preferences
+            .javaScriptCanOpenWindowsAutomatically = false
+
         configuration.defaultWebpagePreferences.preferredContentMode = .desktop
 
         for script in ChatGPTScripts.documentStartScripts + [ChatGPTBridgeScripts.fetchInterceptor] {
@@ -255,7 +256,8 @@ private extension ChatGPTWebViewHost {
             name: Strings.bridgeMessageHandlerName
         )
 
-        ChatGPTContentRules.install(on: configuration.userContentController)
+        ChatGPTContentRules
+            .install(on: configuration.userContentController)
 
         let webView = StaticWebView(
             frame: windowBounds,
@@ -391,7 +393,9 @@ extension ChatGPTWebViewHost: WKNavigationDelegate {
 
     // MARK: - Web Content Process Did Terminate
 
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+    func webViewWebContentProcessDidTerminate(
+        _ webView: WKWebView
+    ) {
         log(
             "The web content process terminated\(isTurnInFlight ? " during a turn" : "").",
             level: .error

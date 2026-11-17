@@ -1,5 +1,5 @@
 //
-//  LanguageModelResponding.swift
+//  LanguageModelRespondingProtocol.swift
 //
 //  Created by Grant Brooks Goodman.
 //  Copyright © NEOTechnica Corporation. All rights reserved.
@@ -17,7 +17,9 @@ protocol LanguageModelResponding {
     func prewarm()
 
     /// Returns the backend's reply to the given prompt.
-    func response(to prompt: String) async throws(LanguageModelError) -> String
+    func response(
+        to prompt: String
+    ) async throws(LanguageModelError) -> String
 
     /// Abandons the current conversation and starts a fresh one.
     func startNewConversation() async throws(LanguageModelError)

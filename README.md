@@ -37,9 +37,9 @@ LanguageModels supports two backends: **Gemini**, called through its API, and **
 | [`LanguageModelError`](Sources/Modules/Common/Models/LanguageModelError.swift) | An error thrown while producing a reply. |
 | [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift) | Configures a Gemini request: the model and an optional system message. |
 | [`GeminiModel`](Sources/Modules/Gemini/Models/Public/GeminiModel.swift) | The Gemini model that answers the prompt. |
-| [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) | Supplies the Gemini API key. |
+| [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegateProtocol.swift) | Supplies the Gemini API key. |
 | [`LanguageModels`](Sources/LanguageModels.swift) | The configuration entry point; register the Gemini API key delegate here. |
-| [`LanguageModelLogDelegate`](Sources/Modules/Common/Protocols/Public/LanguageModelLogDelegate.swift) | Receives the entries LanguageModels logs. |
+| [`LanguageModelLogDelegate`](Sources/Modules/Common/Protocols/Public/LanguageModelLogDelegateProtocol.swift) | Receives the entries LanguageModels logs. |
 | [`LanguageModelLogEntry`](Sources/Modules/Common/Models/LanguageModelLogEntry.swift) | A logged message, with its level, category, and source location. |
 | [`LanguageModelLogLevel`](Sources/Modules/Common/Models/LanguageModelLogLevel.swift) | The amount of detail LanguageModels logs. |
 
@@ -65,7 +65,7 @@ LanguageModels is distributed as a Swift package. Add it to your project using [
 
 ### Register a Gemini API Key
 
-The Gemini backend authenticates each request with an API key. Supply one by conforming a type to [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) and registering it through [`LanguageModels`](Sources/LanguageModels.swift), once, early in your app's lifecycle:
+The Gemini backend authenticates each request with an API key. Supply one by conforming a type to [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegateProtocol.swift) and registering it through [`LanguageModels`](Sources/LanguageModels.swift), once, early in your app's lifecycle:
 
 ```swift
 import LanguageModels
@@ -163,7 +163,7 @@ Each session is backed by its own resources, so multiple sessions run independen
 
 ```swift
 // Defaults: the flash38 model, no system message.
-let config = GeminiConfig()
+let defaultConfig = GeminiConfig()
 
 // A specific model and a system message sent alongside every prompt.
 let config = GeminiConfig(
@@ -206,7 +206,7 @@ Set `LanguageModels.logLevel` to choose how much LanguageModels logs. Each level
 | `info` | Lifecycle events as well: calls, provider choice, page loads, submissions, streams, and conversation changes. |
 | `debug` | Everything, including the text of every prompt and reply, and the page diagnostics that accompany a failure. |
 
-Entries go to the unified logging system under the `LanguageModels` subsystem, with the category `ChatGPT`, `Gemini`, or `Session`. To route them through your own logging instead, conform a type to [`LanguageModelLogDelegate`](Sources/Modules/Common/Protocols/Public/LanguageModelLogDelegate.swift) and register it. Each [`LanguageModelLogEntry`](Sources/Modules/Common/Models/LanguageModelLogEntry.swift) carries its level, category, message, the error it reports, if any, and the file, function, and line it was logged from:
+Entries go to the unified logging system under the `LanguageModels` subsystem, with the category `ChatGPT`, `Gemini`, or `Session`. To route them through your own logging instead, conform a type to [`LanguageModelLogDelegate`](Sources/Modules/Common/Protocols/Public/LanguageModelLogDelegateProtocol.swift) and register it. Each [`LanguageModelLogEntry`](Sources/Modules/Common/Models/LanguageModelLogEntry.swift) carries its level, category, message, the error it reports, if any, and the file, function, and line it was logged from:
 
 ```swift
 struct LogForwarder: LanguageModelLogDelegate {
@@ -252,7 +252,7 @@ Entries arrive on the main actor, as they are logged, and only for the levels `L
 
 On the first turn of a session created with `LanguageModelSession()`, an error is thrown only if *every* provider fails; the error reflects the last provider tried. On later turns, the error comes from the conversation's provider. If the task that called the method is cancelled, the call throws `cancelled` without trying another provider. A call that is cancelled while waiting its turn throws `cancelled` before it runs.
 
-With logging enabled (see [Logging](#logging)), every failure is logged at the `errors` level, and the `debug` level adds the ChatGPT state and recent responses behind it.
+With logging enabled (see [Logging](#logging)), every failure is logged at the `errors` level, and the `debug` level adds the ChatGPT state and recent responses behind a ChatGPT `conversationLost`, `emptyResponse`, `submissionFailed`, or `timedOut` error.
 
 ---
 
@@ -264,9 +264,9 @@ LanguageModels adopts Swift 6 strict concurrency.
 - The session requests background execution time while a reply is in progress, and throws `interrupted` if that time expires.
 - A session's calls run one at a time, in the order they were made. A call that is cancelled while waiting its turn throws `cancelled` before it runs. `prewarm()` runs at once rather than waiting for the calls before it.
 - Sessions are independent and may run concurrently. A session that has used ChatGPT holds the resources ChatGPT needs until the session is released.
-- `LanguageModels.responses(to:using:)` answers each prompt in its own session, up to ten at a time, or two at a time with `.chatGPT`, because ChatGPT-backed sessions are resource-intensive. Duplicate prompts – within a batch or across concurrent calls – share a single in-flight request, and collapse to one entry in the returned dictionary. If any prompt fails, the whole batch fails, and its other prompts are cancelled. If the task that called the method is cancelled, the call throws `cancelled`, and each in-flight request that no other call is waiting on stops. Cancelling a call does not cancel a request that another concurrent call is still waiting on. That request continues for the other call.
+- `LanguageModels.responses(to:using:)` answers each prompt in its own session, up to ten at a time, or two at a time with `.chatGPT`, because ChatGPT-backed sessions are resource-intensive. Duplicate prompts – within a batch, or across concurrent calls that use the same provider – share a single in-flight request, and collapse to one entry in the returned dictionary. If any prompt fails, the whole batch fails, and its other prompts are cancelled. If the task that called the method is cancelled, the call throws `cancelled`, and each in-flight request that no other call is waiting on stops. Cancelling a call does not cancel a request that another concurrent call is still waiting on. That request continues for the other call.
 - [`LanguageModelProvider`](Sources/Modules/Common/Models/LanguageModelProvider.swift), [`GeminiConfig`](Sources/Modules/Gemini/Models/Public/GeminiConfig.swift), and [`GeminiModel`](Sources/Modules/Gemini/Models/Public/GeminiModel.swift) are `Sendable` values.
-- [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegate.swift) conforming types must be `Sendable`. Register the delegate from the main actor.
+- [`GeminiAPIKeyDelegate`](Sources/Modules/Common/Protocols/Public/GeminiAPIKeyDelegateProtocol.swift) conforming types must be `Sendable`. Register the delegate from the main actor.
 
 ---
 

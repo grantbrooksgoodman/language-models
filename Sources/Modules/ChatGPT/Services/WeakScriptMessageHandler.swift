@@ -7,7 +7,6 @@
 
 /* Native */
 import Foundation
-
 @preconcurrency import WebKit
 
 /// Proxies script messages through a weak reference, preventing the

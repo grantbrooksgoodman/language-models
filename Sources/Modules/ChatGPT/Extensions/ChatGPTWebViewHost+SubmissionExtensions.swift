@@ -1,5 +1,5 @@
 //
-//  ChatGPTWebViewHost+Submission.swift
+//  ChatGPTWebViewHost+SubmissionExtensions.swift
 //
 //  Created by Grant Brooks Goodman.
 //  Copyright © NEOTechnica Corporation. All rights reserved.
@@ -26,8 +26,13 @@ extension ChatGPTWebViewHost {
             load()
         }
 
-        let deadline = Date.now.addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
-        var reloadDate = Date.now.addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
+        let deadline = Date
+            .now
+            .addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
+
+        var reloadDate = Date
+            .now
+            .addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
 
         while true {
             try throwIfOffline()
@@ -36,7 +41,10 @@ extension ChatGPTWebViewHost {
                 if state.isChallengePresent {
                     log("A challenge is present.")
                     try await resolveChallenge()
-                    reloadDate = Date.now.addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
+                    reloadDate = Date
+                        .now
+                        .addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
+
                     continue
                 }
 
@@ -69,7 +77,7 @@ extension ChatGPTWebViewHost {
             // The page is waited on until it needs attention or its
             // navigation fails, or until the reload decision is due.
             let sequence = events.sequence
-            let didChange = try await events.wait(
+            if try await events.wait(
                 until: { [self] in
                     events.sequence != sequence && (needsReadinessAttention(events.pageState) || lastNavigationError != nil)
                 },
@@ -77,9 +85,7 @@ extension ChatGPTWebViewHost {
                     deadline,
                     reloadDate
                 )
-            )
-
-            if didChange {
+            ) {
                 continue
             }
 
@@ -92,7 +98,9 @@ extension ChatGPTWebViewHost {
                 reload()
             }
 
-            reloadDate = Date.now.addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
+            reloadDate = Date
+                .now
+                .addingTimeInterval(Double(Floats.readinessReloadIntervalSeconds))
         }
     }
 
@@ -107,7 +115,9 @@ extension ChatGPTWebViewHost {
     /// been submitted, the page's turn is stopped before the call
     /// throws. The conversation's anchors are recorded once the reply
     /// is read.
-    func respondViaComposer(_ prompt: String) async throws(LanguageModelError) -> String {
+    func respondViaComposer(
+        _ prompt: String
+    ) async throws(LanguageModelError) -> String {
         let startDate = Date.now
         do throws(LanguageModelError) {
             let reply = try await respond(to: prompt)
@@ -142,7 +152,9 @@ extension ChatGPTWebViewHost {
                 guard let state = events.pageState else { return false }
                 return state.isComposerPresent && state.urlConversationID == nil
             },
-            deadline: Date.now.addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds)),
+            deadline: Date
+                .now
+                .addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds)),
             timeoutError: .sessionNotReady
         )
     }
@@ -158,7 +170,10 @@ private extension ChatGPTWebViewHost {
     }
 
     func elapsedDescription(since startDate: Date) -> String {
-        String(format: "%.2f s", Date.now.timeIntervalSince(startDate))
+        String(
+            format: "%.2f s",
+            Date.now.timeIntervalSince(startDate)
+        )
     }
 
     func isConversationIntact() async -> Bool {
@@ -169,7 +184,8 @@ private extension ChatGPTWebViewHost {
         }
 
         guard let anchorMessageID else { return true }
-        return await probeTranscript(anchorMessageID: anchorMessageID)?.isAnchorPresent == true
+        return await probeTranscript(anchorMessageID: anchorMessageID)?
+            .isAnchorPresent == true
     }
 
     func isOK(_ result: Any?) -> Bool {
@@ -184,16 +200,16 @@ private extension ChatGPTWebViewHost {
         since baseline: ChatGPTTranscriptState?
     ) async throws(LanguageModelError) -> Bool {
         // A send is confirmed by its stream, or by a new user message.
-        let isSent = try await events.wait(
+        guard try await !events.wait(
             until: { [self] in
                 guard !events.hasStreamStarted else { return true }
                 guard let lastUserMessageID = events.pageState?.lastUserMessageID else { return false }
                 return lastUserMessageID != baseline?.lastUserMessageID
             },
-            deadline: Date.now.addingTimeInterval(Double(Floats.submissionConfirmationTimeoutSeconds))
-        )
-
-        guard !isSent else {
+            deadline: Date
+                .now
+                .addingTimeInterval(Double(Floats.submissionConfirmationTimeoutSeconds))
+        ) else {
             log(
                 "The send was confirmed.",
                 level: .debug
@@ -242,10 +258,13 @@ private extension ChatGPTWebViewHost {
     func loseConversation() async throws(LanguageModelError) -> Never {
         await logDiagnostics("The page no longer shows the conversation; it is lost.")
         clearConversation()
+        load()
         throw .conversationLost
     }
 
-    func needsReadinessAttention(_ state: ChatGPTPageState?) -> Bool {
+    func needsReadinessAttention(
+        _ state: ChatGPTPageState?
+    ) -> Bool {
         guard let state else { return false }
         return state.isChallengePresent || state.isLoggedOutModalPresent || (state.isComposerPresent && !state.isStreaming)
     }
@@ -302,7 +321,9 @@ private extension ChatGPTWebViewHost {
         throw .submissionFailed("The prompt was not sent.")
     }
 
-    func respond(to prompt: String) async throws(LanguageModelError) -> String {
+    func respond(
+        to prompt: String
+    ) async throws(LanguageModelError) -> String {
         try await prepareForTurn()
 
         let transcript = await probeTranscript()
@@ -361,7 +382,9 @@ private extension ChatGPTWebViewHost {
         // a submission it rejects is retried, once the page changes
         // and readiness is confirmed again, until the readiness window
         // elapses.
-        let deadline = Date.now.addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
+        let deadline = Date
+            .now
+            .addingTimeInterval(Double(Floats.sessionReadyTimeoutSeconds))
 
         while true {
             do throws(LanguageModelError) {
@@ -400,7 +423,9 @@ private extension ChatGPTWebViewHost {
     /// is ready, so the check is repeated after every change until it
     /// passes or the window elapses.
     func waitForConversation() async throws(LanguageModelError) -> Bool {
-        let deadline = Date.now.addingTimeInterval(Double(Floats.conversationVerificationTimeoutSeconds))
+        let deadline = Date
+            .now
+            .addingTimeInterval(Double(Floats.conversationVerificationTimeoutSeconds))
 
         while true {
             if await isConversationIntact() {

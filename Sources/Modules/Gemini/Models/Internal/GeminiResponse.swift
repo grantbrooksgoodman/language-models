@@ -29,7 +29,8 @@ struct GeminiResponse: Decodable {
 
     // MARK: - Computed Properties
 
-    /// The concatenated text of the first candidate's reply, if any.
+    /// The concatenated text of the first candidate with content, if
+    /// any.
     var text: String? {
         guard let parts = candidates?.compactMap(\.content).first?.parts else { return nil }
         return parts.compactMap(\.text).joined()

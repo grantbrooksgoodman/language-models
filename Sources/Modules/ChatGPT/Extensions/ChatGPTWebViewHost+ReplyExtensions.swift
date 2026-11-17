@@ -1,5 +1,5 @@
 //
-//  ChatGPTWebViewHost+Reply.swift
+//  ChatGPTWebViewHost+ReplyExtensions.swift
 //
 //  Created by Grant Brooks Goodman.
 //  Copyright © NEOTechnica Corporation. All rights reserved.
@@ -12,6 +12,7 @@ extension ChatGPTWebViewHost {
     // MARK: - Constants Accessors
 
     private typealias Floats = Constants.CGFloats
+    private typealias Strings = Constants.Strings
 
     // MARK: - Methods
 
@@ -20,7 +21,7 @@ extension ChatGPTWebViewHost {
     ) async throws(LanguageModelError) -> String {
         try await unsanitizedReply(since: transcript)
             .replacingOccurrences(
-                of: Constants.Strings.citationMarkerPattern,
+                of: Strings.citationMarkerPattern,
                 with: "",
                 options: .regularExpression
             )
@@ -41,7 +42,10 @@ private extension ChatGPTWebViewHost {
         messageID: String?,
         since transcript: ChatGPTTranscriptState?
     ) async throws(LanguageModelError) -> String? {
-        let deadline = Date.now.addingTimeInterval(Double(Floats.renderedReplyTimeoutSeconds))
+        let deadline = Date
+            .now
+            .addingTimeInterval(Double(Floats.renderedReplyTimeoutSeconds))
+
         var probedRefreshCount = -1
 
         while true {
@@ -85,7 +89,9 @@ private extension ChatGPTWebViewHost {
 
     /// Whether the page shows a reply other than the one that was
     /// last at the baseline, complete.
-    func isReplyShown(since transcript: ChatGPTTranscriptState?) -> Bool {
+    func isReplyShown(
+        since transcript: ChatGPTTranscriptState?
+    ) -> Bool {
         guard let state = events.pageState,
               let messageID = state.lastAssistantMessageID else { return false }
         return state.isLastAssistantMessageComplete && messageID != transcript?.lastAssistantMessageID
@@ -98,8 +104,17 @@ private extension ChatGPTWebViewHost {
     ) -> Date {
         var candidates = [inFlightDeadline]
         if let lastStreamCompletionDate = events.lastStreamCompletionDate {
-            candidates.append(lastStreamCompletionDate.addingTimeInterval(Double(Floats.streamSettleIntervalSeconds)))
-            candidates.append(lastStreamCompletionDate.addingTimeInterval(Double(Floats.followUpStreamTimeoutSeconds)))
+            candidates
+                .append(
+                    lastStreamCompletionDate
+                        .addingTimeInterval(Double(Floats.streamSettleIntervalSeconds))
+                )
+
+            candidates
+                .append(
+                    lastStreamCompletionDate
+                        .addingTimeInterval(Double(Floats.followUpStreamTimeoutSeconds))
+                )
         } else if !events.hasStreamStarted {
             candidates.append(streamStartDeadline)
         }
@@ -112,15 +127,13 @@ private extension ChatGPTWebViewHost {
     func renderedReplyText(
         since transcript: ChatGPTTranscriptState?
     ) async throws(LanguageModelError) -> String? {
-        let renderedReply = await probeRenderedReply(
+        guard let renderedReply = await probeRenderedReply(
             messageID: nil,
             since: transcript
-        )
-
-        guard let renderedReply,
-              renderedReply.isComplete,
-              !renderedReply.text.isEmpty,
-              !isPageStreaming else { return nil }
+        ),
+            renderedReply.isComplete,
+            !renderedReply.text.isEmpty,
+            !isPageStreaming else { return nil }
 
         await logDiagnostics("No conversation stream was recognized; the reply was read from the page.")
         logLinks(in: renderedReply)
@@ -173,8 +186,11 @@ private extension ChatGPTWebViewHost {
         // Only the page and the stream's fallback rendering show a
         // citation as its label.
         let text = unsanitized.isLabeled
-            ? unsanitized.text.strippingCitationLabels(completion.citationLabels)
+            ? unsanitized
+            .text
+            .strippingCitationLabels(completion.citationLabels)
             : unsanitized.text
+
         return text.isEmpty ? nil : text
     }
 
@@ -194,9 +210,15 @@ private extension ChatGPTWebViewHost {
         // to the in-flight limit. The wait resumes on every page or
         // stream event, and at the next deadline.
         let startDate = Date.now
-        let deadline = startDate.addingTimeInterval(Double(Floats.responseTimeoutSeconds))
-        let inFlightDeadline = startDate.addingTimeInterval(Double(Floats.inFlightResponseTimeoutSeconds))
-        let streamStartDeadline = startDate.addingTimeInterval(Double(Floats.streamStartTimeoutSeconds))
+        let deadline = startDate
+            .addingTimeInterval(Double(Floats.responseTimeoutSeconds))
+
+        let inFlightDeadline = startDate
+            .addingTimeInterval(Double(Floats.inFlightResponseTimeoutSeconds))
+
+        let streamStartDeadline = startDate
+            .addingTimeInterval(Double(Floats.streamStartTimeoutSeconds))
+
         var probedRefreshCount = events.refreshCount
         var probedSequence = -1
 
@@ -298,9 +320,14 @@ private extension String {
 
     // MARK: - Methods
 
-    func isLabelOnlyOrPrecededByWhitespace(before suffix: String) -> Bool {
+    func isLabelOnlyOrPrecededByWhitespace(
+        before suffix: String
+    ) -> Bool {
         guard count > suffix.count else { return true }
-        return self[index(endIndex, offsetBy: -suffix.count - 1)].isWhitespace
+        return self[index(
+            endIndex,
+            offsetBy: -suffix.count - 1
+        )].isWhitespace
     }
 
     /// Removes the run of source citations rendered at the end of any
@@ -309,7 +336,9 @@ private extension String {
     /// follows sentence-ending punctuation. Lines in fenced code
     /// blocks are kept as they are.
     func strippingCitationLabels(_ labels: [String]) -> String {
-        guard !labels.isEmpty else { return self }
+        guard !labels.isEmpty else {
+            return self
+        }
 
         let labels = labels.sorted { $0.count > $1.count }
         var isInCodeBlock = false
@@ -323,7 +352,9 @@ private extension String {
         }.joined(separator: "\n")
     }
 
-    func strippingTrailingCitations(_ labels: [String]) -> String {
+    func strippingTrailingCitations(
+        _ labels: [String]
+    ) -> String {
         var line = trimmingTrailingWhitespace
         var hasCitations = false
 
@@ -337,14 +368,19 @@ private extension String {
                 continue
             }
 
-            guard let label = labels.first(where: { line.hasSuffix($0) && line.isLabelOnlyOrPrecededByWhitespace(before: $0) }) else { break }
+            guard let label = labels.first(where: {
+                line.hasSuffix($0) && line.isLabelOnlyOrPrecededByWhitespace(before: $0)
+            }) else { break }
+
             line.removeLast(label.count)
             line = line.trimmingTrailingWhitespace
             hasCitations = true
         }
 
         guard hasCitations,
-              line.isEmpty || line.endsWithSentencePunctuation else { return self }
+              line.isEmpty || line.endsWithSentencePunctuation else {
+            return self
+        }
 
         return line
     }

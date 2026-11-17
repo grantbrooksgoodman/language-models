@@ -8,7 +8,6 @@
 /* Native */
 import ObjectiveC
 import UIKit
-
 @preconcurrency import WebKit
 
 /// A web view that never takes keyboard focus.
@@ -16,9 +15,9 @@ import UIKit
 /// WebKit's keyboard input is handled by the web view's private
 /// content view, which becomes first responder when the page focuses
 /// an editable element – including from script. The content view is
-/// given a per-instance subclass that refuses first responder status,
-/// so driving the page never resigns the host app's own first
-/// responder.
+/// given a dynamically created subclass that refuses first responder
+/// status, so driving the page never resigns the host app's own
+/// first responder.
 final class StaticWebView: WKWebView {
     // MARK: - Constants Accessors
 
@@ -30,6 +29,12 @@ final class StaticWebView: WKWebView {
     private static let refusingClassNamePrefix = "LanguageModels_NonFirstResponder_"
 
     private var hasRefusedContentViewFirstResponder = false
+
+    // MARK: - Computed Properties
+
+    override var canBecomeFirstResponder: Bool {
+        false
+    }
 
     // MARK: - Init
 
@@ -50,11 +55,7 @@ final class StaticWebView: WKWebView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: - Overrides
-
-    override var canBecomeFirstResponder: Bool {
-        false
-    }
+    // MARK: - Methods
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -75,7 +76,8 @@ final class StaticWebView: WKWebView {
         guard !hasRefusedContentViewFirstResponder else { return }
 
         guard let contentView = scrollView.subviews.first(where: {
-            NSStringFromClass(type(of: $0)).hasPrefix(Self.contentViewClassNamePrefix)
+            NSStringFromClass(type(of: $0))
+                .hasPrefix(Self.contentViewClassNamePrefix)
         }) else {
             return logMissingContentView()
         }

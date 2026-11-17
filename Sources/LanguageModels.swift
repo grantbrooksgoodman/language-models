@@ -108,10 +108,10 @@ public enum LanguageModels {
     /// ``LanguageModelSession``, up to ten at a time, or two at a time
     /// with ``LanguageModelProvider/chatGPT``, because ChatGPT-backed
     /// sessions are resource-intensive. Duplicate prompts – within a
-    /// batch or across concurrent calls – share a single in-flight
-    /// request, and collapse to one entry in the returned dictionary.
-    /// If any prompt fails, the whole batch fails, and its other
-    /// prompts are cancelled.
+    /// batch, or across concurrent calls that use the same provider –
+    /// share a single in-flight request, and collapse to one entry in
+    /// the returned dictionary. If any prompt fails, the whole batch
+    /// fails, and its other prompts are cancelled.
     ///
     /// ```swift
     /// let replies = try await LanguageModels.responses(
@@ -170,20 +170,17 @@ public enum LanguageModels {
                         let reply = try await InFlightResponseCoordinator.shared.response(
                             forKey: "\(providerKey)|\(prompt)"
                         ) { () async throws(LanguageModelError) in
-                            let session = await LanguageModelSession(provider)
-                            return try await session.response(to: prompt)
+                            try await LanguageModelSession(provider).response(to: prompt)
                         }
 
                         return (prompt, reply)
                     }
                 }
 
-                let maxConcurrentOperations = min(
+                for _ in 0 ..< min(
                     maxConcurrentOperations(for: provider),
                     prompts.count
-                )
-
-                for _ in 0 ..< maxConcurrentOperations {
+                ) {
                     enqueueNextTask()
                 }
 

@@ -65,8 +65,8 @@ function waitFor(condition, timeoutMilliseconds) {
   });
 }
 
-// Installs the interceptor over a stub `window.fetch` that serves the
-// fixture body, with the stubs the interceptor reads when it installs.
+// Installs the interceptor over the given stub `window.fetch`, with
+// the stubs the interceptor reads when it installs.
 function installInterceptor(fetch, messages) {
   var window = {
     addEventListener() {},

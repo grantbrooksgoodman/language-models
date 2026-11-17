@@ -21,7 +21,9 @@ final class ChatGPTProvider: LanguageModelResponding {
         host.load()
     }
 
-    func response(to prompt: String) async throws(LanguageModelError) -> String {
+    func response(
+        to prompt: String
+    ) async throws(LanguageModelError) -> String {
         try await host.respondViaComposer(prompt)
     }
 

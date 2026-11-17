@@ -1,5 +1,5 @@
 //
-//  ChatGPTWebViewHost+Readiness.swift
+//  ChatGPTWebViewHost+ReadinessExtensions.swift
 //
 //  Created by Grant Brooks Goodman.
 //  Copyright © NEOTechnica Corporation. All rights reserved.
@@ -30,12 +30,12 @@ extension ChatGPTWebViewHost {
     /// The challenge is given time to clear on its own before it is
     /// presented for the user to solve, when presenting is enabled.
     func resolveChallenge() async throws(LanguageModelError) {
-        let hasCleared = try await events.wait(
+        guard try await !events.wait(
             until: { [self] in events.pageState?.isChallengePresent == false },
-            deadline: Date.now.addingTimeInterval(Double(Floats.challengeAutoResolutionTimeoutSeconds))
-        )
-
-        guard !hasCleared else {
+            deadline: Date
+                .now
+                .addingTimeInterval(Double(Floats.challengeAutoResolutionTimeoutSeconds))
+        ) else {
             return log("The challenge cleared on its own.")
         }
 
@@ -63,12 +63,13 @@ extension ChatGPTWebViewHost {
               events.pageState?.isStreaming != true,
               events.pageState?.isChallengePresent != true else { return false }
 
-        return Date.now.timeIntervalSince(events.lastEventDate) >= Double(Floats.readinessReloadIntervalSeconds)
+        return Date.now.timeIntervalSince(events.lastChangeDate) >= Double(Floats.readinessReloadIntervalSeconds)
     }
 
     func throwIfOffline() throws(LanguageModelError) {
         guard let error = lastNavigationError as? URLError,
-              [.dataNotAllowed, .internationalRoamingOff, .notConnectedToInternet].contains(error.code) else { return }
+              [.dataNotAllowed, .internationalRoamingOff, .notConnectedToInternet]
+              .contains(error.code) else { return }
 
         log(
             "The device is offline: \(error.localizedDescription)",
@@ -124,17 +125,20 @@ private extension ChatGPTWebViewHost {
             )
         }
 
-        let hasCleared = try await events.wait(
+        guard try await events.wait(
             until: { [self] in
                 guard !closeButton.isSelected,
-                      let state = events.pageState else { return closeButton.isSelected }
+                      let state = events.pageState else {
+                    return closeButton.isSelected
+                }
+
                 return !state.isChallengePresent && state.isComposerPresent
             },
-            deadline: Date.now.addingTimeInterval(Double(Floats.challengePresentationTimeoutSeconds))
-        )
-
-        guard hasCleared,
-              !closeButton.isSelected else {
+            deadline: Date
+                .now
+                .addingTimeInterval(Double(Floats.challengePresentationTimeoutSeconds))
+        ),
+            !closeButton.isSelected else {
             log(
                 closeButton.isSelected ? "The challenge was closed by the user." : "The challenge was not solved in time.",
                 level: .error
